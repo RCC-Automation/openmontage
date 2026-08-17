@@ -42,8 +42,26 @@ def load_workflow_profile(path: str | Path) -> dict[str, Any]:
             f"Workflow profile {profile_path} is not valid JSON: {exc}"
         ) from exc
 
+    return parse_workflow_profile_json(profile)
+
+
+def parse_workflow_profile_json(
+    value: str | Mapping[str, Any],
+) -> dict[str, Any]:
+    """Parse an inline JSON profile or validate an already-decoded profile."""
+
+    if isinstance(value, str):
+        try:
+            profile = json.loads(value)
+        except json.JSONDecodeError as exc:
+            raise WorkflowProfileError(
+                f"Inline workflow profile is not valid JSON: {exc}"
+            ) from exc
+    else:
+        profile = value
+
     _validate_profile_shape(profile)
-    return profile
+    return copy.deepcopy(dict(profile))
 
 
 def validate_workflow_profile(

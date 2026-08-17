@@ -34,6 +34,12 @@ from tools._comfyui.metadata import (
     model_stack,
     workflow_hash,
 )
+from tools._comfyui.profiles import (
+    WorkflowProfileError,
+    apply_workflow_bindings,
+    load_workflow_profile,
+    parse_workflow_profile_json,
+)
 
 _WORKFLOWS = Path(__file__).resolve().parent.parent / "_comfyui" / "workflows"
 
@@ -129,6 +135,7 @@ class ComfyUIVideo(BaseTool):
         "reference_image": True,
         "custom_workflow": True,
         "custom_output_node": True,
+        "custom_workflow_profile": True,
         "offline": True,
         "gemini_omni_flash_partner_node": True,
         "seedance_2_5_partner_node": True,
@@ -159,6 +166,10 @@ class ComfyUIVideo(BaseTool):
             "prompt": {
                 "type": "string",
                 "description": "Text prompt for video generation",
+            },
+            "negative_prompt": {
+                "type": "string",
+                "description": "Negative prompt for profile-bound custom workflows",
             },
             "operation": {
                 "type": "string",
@@ -211,6 +222,19 @@ class ComfyUIVideo(BaseTool):
                 "default": 5,
                 "description": "Partner Node duration; bundled WAN still uses num_frames.",
             },
+            "duration_seconds": {
+                "type": "number",
+                "minimum": 1,
+                "description": (
+                    "Duration value for a profile-bound custom workflow. The profile "
+                    "decides which workflow input receives it."
+                ),
+            },
+            "fps": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "description": "FPS value for a profile-bound custom workflow",
+            },
             "aspect_ratio": {
                 "type": "string",
                 "enum": ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"],
@@ -232,9 +256,26 @@ class ComfyUIVideo(BaseTool):
                 "type": "string",
                 "description": "Optional path to a ComfyUI workflow JSON file. Requires output_node.",
             },
+            "workflow_profile_json": {
+                "type": "string",
+                "description": (
+                    "Optional inline ComfyUI workflow-binding profile JSON. Requires "
+                    "workflow_json or workflow_path."
+                ),
+            },
+            "workflow_profile_path": {
+                "type": "string",
+                "description": (
+                    "Optional path to a ComfyUI workflow-binding profile. Requires "
+                    "workflow_json or workflow_path."
+                ),
+            },
             "output_node": {
                 "type": "string",
-                "description": "ComfyUI output node ID for custom workflow_json/workflow_path.",
+                "description": (
+                    "ComfyUI output node ID for a custom workflow. Optional when a "
+                    "workflow profile declares output_node; an explicit value overrides it."
+                ),
             },
             "workflow_name": {
                 "type": "string",
@@ -412,6 +453,19 @@ class ComfyUIVideo(BaseTool):
         custom_workflow = bool(
             inputs.get("workflow_json") or inputs.get("workflow_path")
         )
+        try:
+            workflow_profile = self._load_workflow_profile(inputs)
+        except WorkflowProfileError as exc:
+            return ToolResult(success=False, error=str(exc))
+
+        if workflow_profile and not custom_workflow:
+            return ToolResult(
+                success=False,
+                error=(
+                    "workflow_profile_json/workflow_profile_path requires a custom "
+                    "workflow_json or workflow_path."
+                ),
+            )
         model_family = str(inputs.get("model_family", "wan2.2"))
         partner_nodes = {
             "gemini_omni_flash": "GeminiVideoOmni",
@@ -443,7 +497,7 @@ class ComfyUIVideo(BaseTool):
                     "text_to_video; use an official ComfyUI custom workflow for other modes."
                 ),
             )
-        if custom_workflow and not inputs.get("output_node"):
+        if custom_workflow and not inputs.get("output_node") and not workflow_profile:
             return ToolResult(
                 success=False,
                 error=(
@@ -488,7 +542,11 @@ class ComfyUIVideo(BaseTool):
                     ),
                 )
         start = time.time()
-        seed = inputs.get("seed") or ComfyUIClient.random_seed()
+        seed = (
+            inputs["seed"]
+            if inputs.get("seed") is not None
+            else ComfyUIClient.random_seed()
+        )
         output_path = Path(
             inputs.get("output_path", f"comfyui_video_{operation}_{seed}.mp4")
         )
@@ -496,7 +554,18 @@ class ComfyUIVideo(BaseTool):
         try:
             if custom_workflow:
                 workflow = self._load_custom_workflow(inputs)
-                output_node = str(inputs["output_node"])
+                if workflow_profile:
+                    workflow = apply_workflow_bindings(
+                        workflow,
+                        workflow_profile,
+                        self._workflow_profile_values(
+                            inputs, seed, workflow_profile
+                        ),
+                    )
+                output_node = str(
+                    inputs.get("output_node")
+                    or workflow_profile["output_node"]
+                )
             elif model_family in partner_nodes:
                 node_class = partner_nodes[model_family]
                 if not self._client.has_node(node_class):
@@ -658,6 +727,51 @@ class ComfyUIVideo(BaseTool):
         if inputs.get("workflow_json"):
             return json.loads(inputs["workflow_json"])
         return ComfyUIClient.load_workflow(Path(inputs["workflow_path"]))
+
+    @staticmethod
+    def _load_workflow_profile(
+        inputs: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        inline = inputs.get("workflow_profile_json")
+        path = inputs.get("workflow_profile_path")
+        if inline and path:
+            raise WorkflowProfileError(
+                "Provide only one of workflow_profile_json or workflow_profile_path"
+            )
+        if inline:
+            return parse_workflow_profile_json(inline)
+        if path:
+            return load_workflow_profile(Path(path))
+        return None
+
+    @staticmethod
+    def _workflow_profile_values(
+        inputs: dict[str, Any],
+        seed: int,
+        workflow_profile: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Collect values that are safe to patch before media-upload support."""
+
+        values: dict[str, Any] = {
+            "prompt": inputs["prompt"],
+            "seed": seed,
+        }
+        for name in (
+            "negative_prompt",
+            "width",
+            "height",
+            "num_frames",
+            "duration_seconds",
+            "fps",
+        ):
+            if name in inputs:
+                values[name] = inputs[name]
+        declared_bindings = workflow_profile["bindings"]
+        return {
+            name: value
+            for name, value in values.items()
+            if name in declared_bindings
+        }
 
     @staticmethod
     def _model_name(inputs: dict[str, Any], custom_workflow: bool) -> str:

@@ -10,6 +10,7 @@ from tools._comfyui.profiles import (
     WorkflowProfileError,
     apply_workflow_bindings,
     load_workflow_profile,
+    parse_workflow_profile_json,
     validate_workflow_profile,
 )
 
@@ -56,6 +57,15 @@ def test_load_workflow_profile_rejects_invalid_json(tmp_path):
 
     with pytest.raises(WorkflowProfileError, match="not valid JSON"):
         load_workflow_profile(path)
+
+
+def test_parse_inline_workflow_profile_json():
+    assert parse_workflow_profile_json(json.dumps(_profile())) == _profile()
+
+
+def test_parse_inline_workflow_profile_rejects_invalid_json():
+    with pytest.raises(WorkflowProfileError, match="not valid JSON"):
+        parse_workflow_profile_json("{")
 
 
 def test_validate_workflow_profile_accepts_compatible_graph():

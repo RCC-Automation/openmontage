@@ -122,6 +122,13 @@ class TestContract:
         assert "workflow_path" in props
         assert "output_node" in props
 
+        if cls is ComfyUIVideo:
+            assert "workflow_profile_json" in props
+            assert "workflow_profile_path" in props
+            assert "negative_prompt" in props
+            assert "duration_seconds" in props
+            assert "fps" in props
+
     def test_custom_workflow_requires_output_node(self, cls):
         tool = cls()
         result = tool.execute({"prompt": "test", "workflow_json": "{}"})
@@ -758,6 +765,152 @@ class TestCustomWorkflowContract:
         assert result.data["workflow_provenance"]["model_stack_source"] == (
             "unknown_custom_workflow"
         )
+
+    def test_video_custom_workflow_profile_path_applies_bindings(self, tmp_path):
+        tool = ComfyUIVideo()
+        tool._client.is_available = lambda: True
+        seen = {}
+        workflow = {
+            "10": {"inputs": {"text": "old"}},
+            "11": {"inputs": {"noise_seed": 1}},
+            "20": {"inputs": {"filename_prefix": "video/original"}},
+        }
+        profile = {
+            "version": 1,
+            "name": "test-video-profile",
+            "output_node": "20",
+            "bindings": {
+                "prompt": {"node": "10", "input": "text"},
+                "seed": {"node": "11", "input": "noise_seed"},
+            },
+        }
+        workflow_path = tmp_path / "workflow.json"
+        profile_path = tmp_path / "profile.json"
+        workflow_path.write_text(json.dumps(workflow), encoding="utf-8")
+        profile_path.write_text(json.dumps(profile), encoding="utf-8")
+
+        def fake_generate(workflow, output_node, dest, **kwargs):
+            seen["workflow"] = workflow
+            seen["output_node"] = output_node
+            return [Path(dest)]
+
+        tool._client.generate = fake_generate
+        result = tool.execute({
+            "prompt": "new prompt",
+            "seed": 0,
+            "workflow_path": str(workflow_path),
+            "workflow_profile_path": str(profile_path),
+            "output_path": str(tmp_path / "video.mp4"),
+        })
+
+        assert result.success is True
+        assert seen["workflow"]["10"]["inputs"]["text"] == "new prompt"
+        assert seen["workflow"]["11"]["inputs"]["noise_seed"] == 0
+        assert seen["output_node"] == "20"
+        assert workflow["10"]["inputs"]["text"] == "old"
+
+    def test_video_inline_profile_applies_optional_bindings(self, tmp_path):
+        tool = ComfyUIVideo()
+        tool._client.is_available = lambda: True
+        seen = {}
+        workflow = {
+            "10": {"inputs": {"text": "old", "negative": "old"}},
+            "20": {"inputs": {}},
+        }
+        profile = {
+            "version": 1,
+            "name": "inline-profile",
+            "output_node": "20",
+            "bindings": {
+                "prompt": {"node": "10", "input": "text"},
+                "negative_prompt": {"node": "10", "input": "negative"},
+            },
+        }
+
+        def fake_generate(workflow, output_node, dest, **kwargs):
+            seen["workflow"] = workflow
+            seen["output_node"] = output_node
+            return [Path(dest)]
+
+        tool._client.generate = fake_generate
+        result = tool.execute({
+            "prompt": "new prompt",
+            "negative_prompt": "new negative",
+            "workflow_json": json.dumps(workflow),
+            "workflow_profile_json": json.dumps(profile),
+            "output_path": str(tmp_path / "video.mp4"),
+        })
+
+        assert result.success is True
+        assert seen["workflow"]["10"]["inputs"] == {
+            "text": "new prompt",
+            "negative": "new negative",
+        }
+        assert seen["output_node"] == "20"
+
+    def test_video_profile_explicit_output_node_overrides_profile(self, tmp_path):
+        tool = ComfyUIVideo()
+        tool._client.is_available = lambda: True
+        seen = {}
+        workflow = {
+            "10": {"inputs": {"text": "old"}},
+            "20": {"inputs": {}},
+            "21": {"inputs": {}},
+        }
+        profile = {
+            "version": 1,
+            "name": "output-override-profile",
+            "output_node": "20",
+            "bindings": {"prompt": {"node": "10", "input": "text"}},
+        }
+        tool._client.generate = lambda workflow, output_node, dest, **kwargs: (
+            seen.setdefault("output_node", output_node),
+            [Path(dest)],
+        )[1]
+
+        result = tool.execute({
+            "prompt": "new",
+            "workflow_json": json.dumps(workflow),
+            "workflow_profile_json": json.dumps(profile),
+            "output_node": "21",
+            "output_path": str(tmp_path / "video.mp4"),
+        })
+
+        assert result.success is True
+        assert seen["output_node"] == "21"
+
+    def test_video_profile_requires_custom_workflow(self):
+        tool = ComfyUIVideo()
+        result = tool.execute({
+            "prompt": "test",
+            "workflow_profile_json": json.dumps({
+                "version": 1,
+                "name": "orphan",
+                "output_node": "20",
+                "bindings": {"prompt": {"node": "10", "input": "text"}},
+            }),
+        })
+
+        assert result.success is False
+        assert "requires a custom" in result.error
+
+    def test_video_rejects_two_profile_sources(self):
+        tool = ComfyUIVideo()
+        profile = json.dumps({
+            "version": 1,
+            "name": "duplicate",
+            "output_node": "20",
+            "bindings": {"prompt": {"node": "10", "input": "text"}},
+        })
+        result = tool.execute({
+            "prompt": "test",
+            "workflow_json": json.dumps({"10": {"inputs": {"text": "old"}}}),
+            "workflow_profile_json": profile,
+            "workflow_profile_path": "profile.json",
+        })
+
+        assert result.success is False
+        assert "only one" in result.error
 
     def test_custom_workflow_accepts_model_stack_provenance(self, tmp_path):
         tool = ComfyUIVideo()
