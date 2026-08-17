@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "name": "wan2.2-14b-i2v-rocm",
+  "output_node": "108",
+  "bindings": {
+    "prompt": {
+      "node": "171",
+      "input": "text"
+    },
+    "negative_prompt": {
+      "node": "168",
+      "input": "text"
+    },
+    "seed": {
+      "node": "181",
+      "input": "noise_seed"
+    },
+    "width": {
+      "node": "165",
+      "input": "width"
+    },
+    "height": {
+      "node": "165",
+      "input": "height"
+    },
+    "duration_seconds": {
+      "node": "192",
+      "input": "value"
+    },
+    "fps": {
+      "node": "193",
+      "input": "value"
+    },
+    "reference_image": {
+      "node": "97",
+      "input": "image"
+    },
+    "filename_prefix": {
+      "node": "108",
+      "input": "filename_prefix"
+    }
+  }
+}
