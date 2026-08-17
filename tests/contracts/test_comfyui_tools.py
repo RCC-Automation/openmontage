@@ -809,6 +809,82 @@ class TestCustomWorkflowContract:
         assert seen["output_node"] == "20"
         assert workflow["10"]["inputs"]["text"] == "old"
 
+    def test_video_profile_uploads_and_binds_reference_image(self, tmp_path):
+        tool = ComfyUIVideo()
+        tool._client.is_available = lambda: True
+        seen = {}
+        reference_path = tmp_path / "reference.jpg"
+        reference_path.write_bytes(b"test-image")
+        workflow = {
+            "10": {"inputs": {"text": "old"}},
+            "97": {"inputs": {"image": "old.png"}},
+            "108": {"inputs": {"filename_prefix": "video/original"}},
+        }
+        profile = {
+            "version": 1,
+            "name": "i2v-profile",
+            "output_node": "108",
+            "bindings": {
+                "prompt": {"node": "10", "input": "text"},
+                "reference_image": {"node": "97", "input": "image"},
+            },
+        }
+
+        def fake_upload(local_path, name):
+            seen["upload_path"] = local_path
+            seen["upload_name"] = name
+            return "comfy-input-reference.jpg"
+
+        def fake_generate(workflow, output_node, dest, **kwargs):
+            seen["workflow"] = workflow
+            return [Path(dest)]
+
+        tool._client.upload_image = fake_upload
+        tool._client.generate = fake_generate
+        result = tool.execute({
+            "prompt": "new prompt",
+            "operation": "image_to_video",
+            "reference_image_path": str(reference_path),
+            "workflow_json": json.dumps(workflow),
+            "workflow_profile_json": json.dumps(profile),
+            "output_path": str(tmp_path / "video.mp4"),
+        })
+
+        assert result.success is True
+        assert seen["upload_path"] == reference_path
+        assert seen["upload_name"] == "om_video.jpg"
+        assert seen["workflow"]["97"]["inputs"]["image"] == (
+            "comfy-input-reference.jpg"
+        )
+        assert workflow["97"]["inputs"]["image"] == "old.png"
+
+    def test_video_profile_reference_binding_requires_image(self, tmp_path):
+        tool = ComfyUIVideo()
+        tool._client.is_available = lambda: True
+        workflow = {
+            "97": {"inputs": {"image": "old.png"}},
+            "108": {"inputs": {}},
+        }
+        profile = {
+            "version": 1,
+            "name": "i2v-profile",
+            "output_node": "108",
+            "bindings": {
+                "reference_image": {"node": "97", "input": "image"},
+            },
+        }
+
+        result = tool.execute({
+            "prompt": "test",
+            "operation": "image_to_video",
+            "workflow_json": json.dumps(workflow),
+            "workflow_profile_json": json.dumps(profile),
+            "output_path": str(tmp_path / "video.mp4"),
+        })
+
+        assert result.success is False
+        assert "requires reference_image_path or reference_image_url" in result.error
+
     def test_video_inline_profile_applies_optional_bindings(self, tmp_path):
         tool = ComfyUIVideo()
         tool._client.is_available = lambda: True

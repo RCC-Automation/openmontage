@@ -555,12 +555,17 @@ class ComfyUIVideo(BaseTool):
             if custom_workflow:
                 workflow = self._load_custom_workflow(inputs)
                 if workflow_profile:
+                    profile_values = self._workflow_profile_values(
+                        inputs, seed, workflow_profile
+                    )
+                    if "reference_image" in workflow_profile["bindings"]:
+                        profile_values["reference_image"] = (
+                            self._upload_reference_image(inputs, output_path)
+                        )
                     workflow = apply_workflow_bindings(
                         workflow,
                         workflow_profile,
-                        self._workflow_profile_values(
-                            inputs, seed, workflow_profile
-                        ),
+                        profile_values,
                     )
                 output_node = str(
                     inputs.get("output_node")
@@ -688,7 +693,26 @@ class ComfyUIVideo(BaseTool):
         height = inputs.get("height", 640)
         num_frames = inputs.get("num_frames", 81)
 
-        # Resolve reference image
+        server_name = self._upload_reference_image(inputs, output_path)
+
+        workflow = ComfyUIClient.load_workflow(_WORKFLOWS / "wan22-i2v-4step.json")
+        workflow = ComfyUIClient.patch_workflow(
+            workflow,
+            {
+                "93": {"text": inputs["prompt"]},
+                "97": {"image": server_name},
+                "98": {"width": width, "height": height, "length": num_frames},
+                "86": {"noise_seed": seed},
+                "108": {"filename_prefix": output_path.stem},
+            },
+        )
+        return workflow, _I2V_OUTPUT_NODE
+
+    def _upload_reference_image(
+        self, inputs: dict[str, Any], output_path: Path
+    ) -> str:
+        """Resolve a local/remote reference image and upload it to ComfyUI."""
+
         ref_path = inputs.get("reference_image_path")
         ref_url = inputs.get("reference_image_url")
 
@@ -705,22 +729,13 @@ class ComfyUIVideo(BaseTool):
                 "image_to_video requires reference_image_path or reference_image_url"
             )
 
-        # Upload to ComfyUI
-        upload_name = f"om_{output_path.stem}.png"
-        server_name = self._client.upload_image(Path(ref_path), upload_name)
+        local_path = Path(ref_path)
+        if not local_path.is_file():
+            raise ComfyUIError(f"Reference image does not exist: {local_path}")
 
-        workflow = ComfyUIClient.load_workflow(_WORKFLOWS / "wan22-i2v-4step.json")
-        workflow = ComfyUIClient.patch_workflow(
-            workflow,
-            {
-                "93": {"text": inputs["prompt"]},
-                "97": {"image": server_name},
-                "98": {"width": width, "height": height, "length": num_frames},
-                "86": {"noise_seed": seed},
-                "108": {"filename_prefix": output_path.stem},
-            },
-        )
-        return workflow, _I2V_OUTPUT_NODE
+        suffix = local_path.suffix or ".png"
+        upload_name = f"om_{output_path.stem}{suffix}"
+        return self._client.upload_image(local_path, upload_name)
 
     @staticmethod
     def _load_custom_workflow(inputs: dict[str, Any]) -> dict:

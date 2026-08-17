@@ -37,6 +37,8 @@ Use this skill before calling `comfyui_image`, `comfyui_video`, or `comfyui_musi
 ## Output Node Contract
 
 - Custom workflows must pass `output_node`.
+- A validated workflow profile may declare `output_node` instead; an explicit
+  tool input still overrides the profile value.
 - Pick the node that writes the artifact, usually `SaveImage`, `SaveVideo`, `VHS_VideoCombine`, or another terminal saver node.
 - Pass the node ID as a string, for example `"108"`. Do not pass the class name.
 - If a workflow has multiple savers, choose the final deliverable node, not previews or intermediates.
@@ -45,6 +47,10 @@ Use this skill before calling `comfyui_image`, `comfyui_video`, or `comfyui_musi
 
 - Identify templated nodes before execution: prompt text, seed, dimensions, frame count, source image, sampler settings, and output filename prefix.
 - Fixed nodes are model loaders, VAEs, text encoders, LoRA loaders, schedulers, and graph wiring. Do not mutate those unless the workflow author intended that customization.
+- For `comfyui_video`, a workflow profile can bind `reference_image` to a
+  `LoadImage`-style input. The tool uploads `reference_image_path` or
+  `reference_image_url` to ComfyUI and patches the returned server filename
+  into that declared binding before submission.
 - For community workflows, inspect each loader node and note every required model or custom node before running. Missing models should be handled through the tool's structured `missing_models` payload when available.
 
 ## Model and LoRA Setup

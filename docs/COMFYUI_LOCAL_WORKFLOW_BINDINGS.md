@@ -228,11 +228,19 @@ It should not be registered as an OpenMontage `video_generation` profile.
 
 ## Required adapter work
 
+Implementation status on `integration/comfyui-local`:
+
+- Workflow-profile validation and scalar/multi-target binding are implemented.
+- `comfyui_video` accepts `workflow_profile_json` or `workflow_profile_path`.
+- Profile-bound reference images are uploaded through ComfyUI's
+  `/upload/image` endpoint and the returned server filename is patched into the
+  declared `reference_image` binding.
+- Driving-video upload, filename-prefix binding, and expanded profile
+  provenance remain future work.
+
 ### Parameter injection
 
-The current `comfyui_video` adapter accepts custom `workflow_json` or
-`workflow_path`, but submits arbitrary workflows essentially unchanged. A
-profile system should:
+For profile-bound custom workflows, the adapter now:
 
 1. Load the API-format workflow and profile.
 2. Validate that every referenced node and input exists.
@@ -245,10 +253,9 @@ profile system should:
 ### Input upload
 
 The workflows contain ComfyUI-local filenames such as images and driving
-videos. The adapter must upload/copy user-supplied inputs to ComfyUI and patch
-the server filenames into the graph. The bundled WAN I2V path already uploads
-a reference image; arbitrary custom workflows do not automatically receive
-that behavior.
+videos. Profile-bound `reference_image` inputs now use the same upload behavior
+as the bundled WAN I2V path. Driving-video and other arbitrary file bindings do
+not yet automatically receive that behavior.
 
 ### Profile validation
 
