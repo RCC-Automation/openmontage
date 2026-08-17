@@ -38,6 +38,9 @@ corpus/
 # User music library (personal royalty-free tracks — not part of repo)
 music_library/
 
+# Local ComfyUI API workflows (machine-specific nodes, models, and inputs)
+local_workflows/
+
 # Environment & credentials
 .env
 .env.local
