@@ -8,9 +8,11 @@ via the ``workflow_json`` input.
 from __future__ import annotations
 
 import json
+import math
 import time
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import requests
 
@@ -200,6 +202,34 @@ class ComfyUIVideo(BaseTool):
                 "type": "string",
                 "description": "URL of reference image (for image_to_video, downloaded first)",
             },
+            "first_frame_path": {
+                "type": "string",
+                "description": "Local first-frame image for a profile-bound workflow",
+            },
+            "first_frame_url": {
+                "type": "string",
+                "description": "Remote first-frame image for a profile-bound workflow",
+            },
+            "last_frame_path": {
+                "type": "string",
+                "description": "Local last-frame image for a profile-bound workflow",
+            },
+            "last_frame_url": {
+                "type": "string",
+                "description": "Remote last-frame image for a profile-bound workflow",
+            },
+            "driving_video_path": {
+                "type": "string",
+                "description": "Local driving video for a profile-bound workflow",
+            },
+            "driving_video_url": {
+                "type": "string",
+                "description": "Remote driving video for a profile-bound workflow",
+            },
+            "pose_prompt": {
+                "type": "string",
+                "description": "Pose description for a profile-bound workflow",
+            },
             "width": {
                 "type": "integer",
                 "default": 832,
@@ -248,6 +278,13 @@ class ComfyUIVideo(BaseTool):
             "generate_audio": {"type": "boolean", "default": True},
             "seed": {"type": "integer", "description": "Random if omitted"},
             "output_path": {"type": "string", "description": "Where to save the video"},
+            "filename_prefix": {
+                "type": "string",
+                "description": (
+                    "Optional ComfyUI output prefix for a profile-bound workflow. "
+                    "Defaults to video/<output filename stem>."
+                ),
+            },
             "workflow_json": {
                 "type": "string",
                 "description": "Optional full ComfyUI workflow JSON. Requires output_node.",
@@ -550,6 +587,7 @@ class ComfyUIVideo(BaseTool):
         output_path = Path(
             inputs.get("output_path", f"comfyui_video_{operation}_{seed}.mp4")
         )
+        applied_profile_values: dict[str, Any] = {}
 
         try:
             if custom_workflow:
@@ -558,15 +596,21 @@ class ComfyUIVideo(BaseTool):
                     profile_values = self._workflow_profile_values(
                         inputs, seed, workflow_profile
                     )
-                    if "reference_image" in workflow_profile["bindings"]:
-                        profile_values["reference_image"] = (
-                            self._upload_reference_image(inputs, output_path)
+                    if "filename_prefix" in workflow_profile["bindings"]:
+                        profile_values["filename_prefix"] = inputs.get(
+                            "filename_prefix", f"video/{output_path.stem}"
                         )
+                    profile_values.update(
+                        self._upload_profile_media(
+                            inputs, output_path, workflow_profile
+                        )
+                    )
                     workflow = apply_workflow_bindings(
                         workflow,
                         workflow_profile,
                         profile_values,
                     )
+                    applied_profile_values = profile_values
                 output_node = str(
                     inputs.get("output_node")
                     or workflow_profile["output_node"]
@@ -587,7 +631,14 @@ class ComfyUIVideo(BaseTool):
                 workflow, output_node = self._build_t2v(inputs, seed, output_path)
 
             provenance = self._workflow_provenance(
-                inputs, custom_workflow, output_node, operation, workflow, model_family
+                inputs,
+                custom_workflow,
+                output_node,
+                operation,
+                workflow,
+                model_family,
+                workflow_profile,
+                applied_profile_values,
             )
             paths = self._client.generate(
                 workflow,
@@ -641,17 +692,10 @@ class ComfyUIVideo(BaseTool):
                 }
             )
         else:
-            width = inputs.get("width", 832 if operation == "text_to_video" else 640)
-            height = inputs.get("height", 480 if operation == "text_to_video" else 640)
-            num_frames = inputs.get("num_frames", 81)
             result_data.update(
-                {
-                    "width": width,
-                    "height": height,
-                    "num_frames": num_frames,
-                    "fps": 16,
-                    "duration_seconds": round(num_frames / 16, 2),
-                }
+                self._local_result_metadata(
+                    inputs, operation, applied_profile_values
+                )
             )
         return ToolResult(
             success=True,
@@ -737,6 +781,67 @@ class ComfyUIVideo(BaseTool):
         upload_name = f"om_{output_path.stem}{suffix}"
         return self._client.upload_image(local_path, upload_name)
 
+    def _upload_profile_media(
+        self,
+        inputs: dict[str, Any],
+        output_path: Path,
+        workflow_profile: dict[str, Any],
+    ) -> dict[str, str]:
+        """Upload media bindings declared by a custom workflow profile."""
+
+        media_inputs = {
+            "reference_image": ("reference_image_path", "reference_image_url"),
+            "first_frame": ("first_frame_path", "first_frame_url"),
+            "last_frame": ("last_frame_path", "last_frame_url"),
+            "driving_video": ("driving_video_path", "driving_video_url"),
+        }
+        uploaded: dict[str, str] = {}
+        bindings = workflow_profile["bindings"]
+        for binding_name, (path_key, url_key) in media_inputs.items():
+            if binding_name not in bindings:
+                continue
+            uploaded[binding_name] = self._upload_profile_input(
+                inputs.get(path_key),
+                inputs.get(url_key),
+                output_path,
+                binding_name,
+            )
+        return uploaded
+
+    def _upload_profile_input(
+        self,
+        local_value: str | None,
+        remote_url: str | None,
+        output_path: Path,
+        binding_name: str,
+    ) -> str:
+        """Resolve and upload one profile-bound ComfyUI input file."""
+
+        local_path = Path(local_value) if local_value else None
+        remote_suffix = Path(urlparse(remote_url).path).suffix if remote_url else ""
+        if remote_url and local_path is None:
+            suffix = remote_suffix or ".bin"
+            local_path = output_path.with_suffix(f".{binding_name}{suffix}")
+            response = requests.get(remote_url, timeout=120)
+            response.raise_for_status()
+            local_path.parent.mkdir(parents=True, exist_ok=True)
+            local_path.write_bytes(response.content)
+
+        if local_path is None:
+            raise ComfyUIError(
+                f'Workflow profile binding "{binding_name}" requires '
+                f"{binding_name}_path or {binding_name}_url"
+            )
+        if not local_path.is_file():
+            raise ComfyUIError(
+                f'Workflow profile input "{binding_name}" does not exist: '
+                f"{local_path}"
+            )
+
+        suffix = local_path.suffix or remote_suffix or ".bin"
+        upload_name = f"om_{output_path.stem}_{binding_name}{suffix}"
+        return self._client.upload_input(local_path, upload_name)
+
     @staticmethod
     def _load_custom_workflow(inputs: dict[str, Any]) -> dict:
         if inputs.get("workflow_json"):
@@ -773,6 +878,7 @@ class ComfyUIVideo(BaseTool):
         }
         for name in (
             "negative_prompt",
+            "pose_prompt",
             "width",
             "height",
             "num_frames",
@@ -786,6 +892,38 @@ class ComfyUIVideo(BaseTool):
             name: value
             for name, value in values.items()
             if name in declared_bindings
+        }
+
+    @staticmethod
+    def _local_result_metadata(
+        inputs: dict[str, Any],
+        operation: str,
+        applied_profile_values: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Report the effective local workflow settings instead of defaults."""
+
+        width = applied_profile_values.get(
+            "width", inputs.get("width", 832 if operation == "text_to_video" else 640)
+        )
+        height = applied_profile_values.get(
+            "height", inputs.get("height", 480 if operation == "text_to_video" else 640)
+        )
+        fps = float(applied_profile_values.get("fps", inputs.get("fps", 16)))
+        duration = applied_profile_values.get("duration_seconds")
+        num_frames = applied_profile_values.get("num_frames")
+        if num_frames is None and duration is not None:
+            num_frames = math.floor(float(duration) * fps + 1)
+        if num_frames is None:
+            num_frames = inputs.get("num_frames", 81)
+        if duration is None:
+            duration = float(num_frames) / fps
+
+        return {
+            "width": width,
+            "height": height,
+            "num_frames": int(num_frames),
+            "fps": fps,
+            "duration_seconds": round(float(duration), 3),
         }
 
     @staticmethod
@@ -814,6 +952,8 @@ class ComfyUIVideo(BaseTool):
         operation: str,
         workflow: dict[str, Any],
         model_family: str,
+        workflow_profile: dict[str, Any] | None = None,
+        applied_profile_values: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         partner_nodes = {
             "gemini_omni_flash": "GeminiVideoOmni",
@@ -848,7 +988,9 @@ class ComfyUIVideo(BaseTool):
                 "output_node": output_node,
             }
         local_h3 = model_family == "minimax_h3_local"
-        return {
+        supplied_stack = inputs.get("workflow_model_stack")
+        inferred_stack = ComfyUIVideo._infer_model_stack(workflow)
+        provenance = {
             "source": "user_supplied",
             "workflow_name": inputs.get("workflow_name"),
             "workflow_path": inputs.get("workflow_path"),
@@ -856,18 +998,74 @@ class ComfyUIVideo(BaseTool):
             "workflow_hash_sha256": workflow_hash(workflow),
             "model_stack": (
                 BUNDLED_MODEL_STACKS["minimax-h3-local"]
-                if local_h3 and not inputs.get("workflow_model_stack")
+                if local_h3 and not supplied_stack
                 else model_stack(None, inputs)
+                if supplied_stack
+                else inferred_stack
             ),
             "model_stack_source": (
                 "caller_supplied"
-                if inputs.get("workflow_model_stack")
+                if supplied_stack
                 else "official_minimax_h3_stack"
                 if local_h3
+                else "inferred_from_workflow"
+                if inferred_stack
                 else "unknown_custom_workflow"
             ),
             "output_node": output_node,
         }
+        if workflow_profile:
+            provenance["workflow_profile"] = {
+                "name": workflow_profile["name"],
+                "version": workflow_profile["version"],
+                "path": inputs.get("workflow_profile_path"),
+                "source": (
+                    "path" if inputs.get("workflow_profile_path") else "inline"
+                ),
+                "profile_hash_sha256": workflow_hash(workflow_profile),
+                "declared_bindings": sorted(workflow_profile["bindings"]),
+                "applied_bindings": dict(applied_profile_values or {}),
+            }
+        return provenance
+
+    @staticmethod
+    def _infer_model_stack(workflow: dict[str, Any]) -> list[dict[str, Any]]:
+        """Infer common ComfyUI loader assets for custom-workflow provenance."""
+
+        roles = {
+            "unet_name": "diffusion_model",
+            "ckpt_name": "checkpoint",
+            "clip_name": "text_encoder",
+            "clip_name1": "text_encoder",
+            "clip_name2": "text_encoder",
+            "vae_name": "vae",
+            "lora_name": "lora",
+        }
+        stack: list[dict[str, Any]] = []
+        seen: set[tuple[str, str]] = set()
+        for node_id, node in workflow.items():
+            node_inputs = node.get("inputs", {}) if isinstance(node, dict) else {}
+            if not isinstance(node_inputs, dict):
+                continue
+            for input_name, role in roles.items():
+                asset_name = node_inputs.get(input_name)
+                if not isinstance(asset_name, str) or not asset_name:
+                    continue
+                key = (role, asset_name)
+                if key in seen:
+                    continue
+                seen.add(key)
+                item: dict[str, Any] = {
+                    "role": role,
+                    "name": asset_name,
+                    "node": str(node_id),
+                }
+                if role == "lora":
+                    for strength in ("strength_model", "strength_clip"):
+                        if strength in node_inputs:
+                            item[strength] = node_inputs[strength]
+                stack.append(item)
+        return stack
 
     @staticmethod
     def _build_partner_t2v(

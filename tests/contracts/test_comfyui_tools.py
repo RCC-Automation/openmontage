@@ -839,7 +839,7 @@ class TestCustomWorkflowContract:
             seen["workflow"] = workflow
             return [Path(dest)]
 
-        tool._client.upload_image = fake_upload
+        tool._client.upload_input = fake_upload
         tool._client.generate = fake_generate
         result = tool.execute({
             "prompt": "new prompt",
@@ -852,7 +852,7 @@ class TestCustomWorkflowContract:
 
         assert result.success is True
         assert seen["upload_path"] == reference_path
-        assert seen["upload_name"] == "om_video.jpg"
+        assert seen["upload_name"] == "om_video_reference_image.jpg"
         assert seen["workflow"]["97"]["inputs"]["image"] == (
             "comfy-input-reference.jpg"
         )
@@ -884,6 +884,149 @@ class TestCustomWorkflowContract:
 
         assert result.success is False
         assert "requires reference_image_path or reference_image_url" in result.error
+
+    def test_video_profile_binds_filename_and_reports_effective_metadata(self, tmp_path):
+        tool = ComfyUIVideo()
+        tool._client.is_available = lambda: True
+        seen = {}
+        workflow = {
+            "10": {"inputs": {"text": "old"}},
+            "20": {"inputs": {"width": 640, "height": 640}},
+            "21": {"inputs": {"value": 5}},
+            "22": {"inputs": {"value": 16}},
+            "30": {"inputs": {"filename_prefix": "video/original"}},
+        }
+        profile = {
+            "version": 1,
+            "name": "metadata-profile",
+            "output_node": "30",
+            "bindings": {
+                "prompt": {"node": "10", "input": "text"},
+                "width": {"node": "20", "input": "width"},
+                "height": {"node": "20", "input": "height"},
+                "duration_seconds": {"node": "21", "input": "value"},
+                "fps": {"node": "22", "input": "value"},
+                "filename_prefix": {"node": "30", "input": "filename_prefix"},
+            },
+        }
+
+        def fake_generate(workflow, output_node, dest, **kwargs):
+            seen["workflow"] = workflow
+            return [Path(dest)]
+
+        tool._client.generate = fake_generate
+        result = tool.execute({
+            "prompt": "test",
+            "operation": "image_to_video",
+            "width": 768,
+            "height": 432,
+            "duration_seconds": 10,
+            "fps": 16,
+            "workflow_json": json.dumps(workflow),
+            "workflow_profile_json": json.dumps(profile),
+            "output_path": str(tmp_path / "named-output.mp4"),
+        })
+
+        assert result.success is True
+        assert seen["workflow"]["30"]["inputs"]["filename_prefix"] == (
+            "video/named-output"
+        )
+        assert result.data["width"] == 768
+        assert result.data["height"] == 432
+        assert result.data["fps"] == 16.0
+        assert result.data["num_frames"] == 161
+        assert result.data["duration_seconds"] == 10.0
+        profile_data = result.data["workflow_provenance"]["workflow_profile"]
+        assert profile_data["name"] == "metadata-profile"
+        assert profile_data["source"] == "inline"
+        assert profile_data["profile_hash_sha256"]
+        assert profile_data["applied_bindings"]["duration_seconds"] == 10
+        assert profile_data["applied_bindings"]["filename_prefix"] == (
+            "video/named-output"
+        )
+
+    def test_video_profile_uploads_and_binds_driving_video(self, tmp_path):
+        tool = ComfyUIVideo()
+        tool._client.is_available = lambda: True
+        seen = {}
+        driving_path = tmp_path / "driving.mp4"
+        driving_path.write_bytes(b"test-video")
+        workflow = {
+            "40": {"inputs": {"file": "old.mp4"}},
+            "50": {"inputs": {}},
+        }
+        profile = {
+            "version": 1,
+            "name": "animate-profile",
+            "output_node": "50",
+            "bindings": {
+                "driving_video": {"node": "40", "input": "file"},
+            },
+        }
+
+        def fake_upload(local_path, name):
+            seen["upload_path"] = local_path
+            seen["upload_name"] = name
+            return "server-driving.mp4"
+
+        def fake_generate(workflow, output_node, dest, **kwargs):
+            seen["workflow"] = workflow
+            return [Path(dest)]
+
+        tool._client.upload_input = fake_upload
+        tool._client.generate = fake_generate
+        result = tool.execute({
+            "prompt": "test",
+            "driving_video_path": str(driving_path),
+            "workflow_json": json.dumps(workflow),
+            "workflow_profile_json": json.dumps(profile),
+            "output_path": str(tmp_path / "animation.mp4"),
+        })
+
+        assert result.success is True
+        assert seen["upload_path"] == driving_path
+        assert seen["upload_name"] == "om_animation_driving_video.mp4"
+        assert seen["workflow"]["40"]["inputs"]["file"] == "server-driving.mp4"
+
+    def test_custom_workflow_infers_model_stack(self, tmp_path):
+        tool = ComfyUIVideo()
+        tool._client.is_available = lambda: True
+        tool._client.generate = lambda workflow, output_node, dest, **kwargs: [Path(dest)]
+        workflow = {
+            "1": {"inputs": {"unet_name": "wan.fp8.safetensors"}},
+            "2": {"inputs": {"vae_name": "wan_vae.safetensors"}},
+            "3": {
+                "inputs": {
+                    "lora_name": "lightx2v.safetensors",
+                    "strength_model": 1.0,
+                }
+            },
+            "9": {"inputs": {}},
+        }
+
+        result = tool.execute({
+            "prompt": "test",
+            "workflow_json": json.dumps(workflow),
+            "output_node": "9",
+            "output_path": str(tmp_path / "video.mp4"),
+        })
+
+        provenance = result.data["workflow_provenance"]
+        assert provenance["model_stack_source"] == "inferred_from_workflow"
+        assert provenance["model_stack"] == [
+            {
+                "role": "diffusion_model",
+                "name": "wan.fp8.safetensors",
+                "node": "1",
+            },
+            {"role": "vae", "name": "wan_vae.safetensors", "node": "2"},
+            {
+                "role": "lora",
+                "name": "lightx2v.safetensors",
+                "node": "3",
+                "strength_model": 1.0,
+            },
+        ]
 
     def test_video_inline_profile_applies_optional_bindings(self, tmp_path):
         tool = ComfyUIVideo()

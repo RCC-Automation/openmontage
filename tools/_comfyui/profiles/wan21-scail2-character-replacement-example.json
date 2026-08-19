@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "name": "wan21-scail2-character-replacement-rocm",
+  "output_node": "271",
+  "bindings": {
+    "prompt": [
+      {"node": "213:3", "input": "text"},
+      {"node": "262:258", "input": "text"}
+    ],
+    "negative_prompt": [
+      {"node": "213:4", "input": "text"},
+      {"node": "262:257", "input": "text"}
+    ],
+    "seed": [
+      {"node": "213:19", "input": "noise_seed"},
+      {"node": "262:227", "input": "noise_seed"}
+    ],
+    "width": [
+      {"node": "213:178", "input": "value"},
+      {"node": "262:236", "input": "value"}
+    ],
+    "height": [
+      {"node": "213:179", "input": "value"},
+      {"node": "262:237", "input": "value"}
+    ],
+    "reference_image": {"node": "30", "input": "image"},
+    "driving_video": {"node": "155", "input": "file"},
+    "filename_prefix": {"node": "271", "input": "filename_prefix"}
+  }
+}

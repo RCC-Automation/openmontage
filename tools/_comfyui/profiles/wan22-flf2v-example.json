@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "name": "wan2.2-14b-first-last-frame-rocm",
+  "output_node": "61",
+  "bindings": {
+    "prompt": {"node": "6", "input": "text"},
+    "negative_prompt": {"node": "7", "input": "text"},
+    "seed": {"node": "57", "input": "noise_seed"},
+    "width": {"node": "67", "input": "width"},
+    "height": {"node": "67", "input": "height"},
+    "num_frames": {"node": "67", "input": "length"},
+    "first_frame": {"node": "68", "input": "image"},
+    "last_frame": {"node": "62", "input": "image"},
+    "fps": {"node": "60", "input": "fps"},
+    "filename_prefix": {"node": "61", "input": "filename_prefix"}
+  }
+}

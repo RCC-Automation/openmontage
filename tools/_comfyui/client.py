@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import copy
 import json
+import mimetypes
 import os
 import random
 import time
@@ -395,10 +396,25 @@ class ComfyUIClient:
 
         Returns the server-side filename.
         """
+        return self.upload_input(local_path, name)
+
+    def upload_input(self, local_path: Path, name: str) -> str:
+        """Upload a file to ComfyUI's input directory.
+
+        ComfyUI exposes the generic input-file upload through
+        ``/upload/image`` even when video-loading custom nodes later consume
+        the staged file. The original suffix and MIME type are preserved.
+        """
+
+        content_type = (
+            mimetypes.guess_type(name)[0]
+            or mimetypes.guess_type(str(local_path))[0]
+            or "application/octet-stream"
+        )
         with open(local_path, "rb") as f:
             resp = requests.post(
                 f"{self.server_url}/upload/image",
-                files={"image": (name, f, "image/png")},
+                files={"image": (name, f, content_type)},
                 timeout=30,
             )
         resp.raise_for_status()

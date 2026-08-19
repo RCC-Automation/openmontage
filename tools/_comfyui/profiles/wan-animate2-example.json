@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "name": "wan-animate2-rocm",
+  "output_node": "246",
+  "bindings": {
+    "prompt": {"node": "261:3", "input": "text"},
+    "negative_prompt": {"node": "261:4", "input": "text"},
+    "pose_prompt": {"node": "261:222", "input": "text"},
+    "seed": {"node": "261:19", "input": "noise_seed"},
+    "reference_image": {"node": "189", "input": "image"},
+    "driving_video": {"node": "240", "input": "file"},
+    "width": {"node": "261:243", "input": "resize_type.width"},
+    "height": {"node": "261:243", "input": "resize_type.height"},
+    "num_frames": {"node": "261:247", "input": "length"},
+    "filename_prefix": {"node": "246", "input": "filename_prefix"}
+  }
+}

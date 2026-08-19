@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -49,6 +50,31 @@ def test_load_workflow_profile(tmp_path):
     path.write_text(json.dumps(_profile()), encoding="utf-8")
 
     assert load_workflow_profile(path) == _profile()
+
+
+@pytest.mark.parametrize(
+    "profile_name",
+    [
+        "wan22-i2v-example.json",
+        "wan22-flf2v-example.json",
+        "wan-animate2-example.json",
+        "wan21-scail2-character-replacement-example.json",
+    ],
+)
+def test_bundled_example_profiles_have_valid_shape(profile_name):
+    profile_path = (
+        Path(__file__).resolve().parents[2]
+        / "tools"
+        / "_comfyui"
+        / "profiles"
+        / profile_name
+    )
+
+    profile = load_workflow_profile(profile_path)
+
+    assert profile["version"] == 1
+    assert profile["output_node"]
+    assert profile["bindings"]
 
 
 def test_load_workflow_profile_rejects_invalid_json(tmp_path):

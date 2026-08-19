@@ -232,11 +232,15 @@ Implementation status on `integration/comfyui-local`:
 
 - Workflow-profile validation and scalar/multi-target binding are implemented.
 - `comfyui_video` accepts `workflow_profile_json` or `workflow_profile_path`.
-- Profile-bound reference images are uploaded through ComfyUI's
-  `/upload/image` endpoint and the returned server filename is patched into the
-  declared `reference_image` binding.
-- Driving-video upload, filename-prefix binding, and expanded profile
-  provenance remain future work.
+- Profile-bound reference, first-frame, last-frame, and driving-video files are
+  uploaded through ComfyUI's input endpoint and patched into the graph.
+- Filename prefixes default to `video/<output stem>` and may be overridden with
+  `filename_prefix`.
+- Result metadata is derived from applied duration/FPS/frame/dimension values.
+- Provenance records the profile, applied bindings, and either caller-supplied
+  or workflow-inferred model dependencies.
+- Example profiles are included for WAN 2.2 I2V, WAN 2.2 first/last-frame,
+  WAN Animate2, and WAN 2.1 SCAIL2 character replacement.
 
 ### Parameter injection
 
@@ -253,9 +257,46 @@ For profile-bound custom workflows, the adapter now:
 ### Input upload
 
 The workflows contain ComfyUI-local filenames such as images and driving
-videos. Profile-bound `reference_image` inputs now use the same upload behavior
-as the bundled WAN I2V path. Driving-video and other arbitrary file bindings do
-not yet automatically receive that behavior.
+videos. Profile-bound `reference_image`, `first_frame`, `last_frame`, and
+`driving_video` inputs use the same ComfyUI input upload endpoint as the bundled
+WAN I2V path. The server filename returned by ComfyUI is patched into the graph.
+
+## Repeatable command
+
+Use `scripts/run_comfyui_workflow.py` for an integration run. This avoids long
+inline Python commands while keeping execution inside the normal
+`ComfyUIVideo` tool contract.
+
+WAN 2.2 I2V example from the repository root:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\run_comfyui_workflow.py `
+  --workflow local_workflows\my_video_wan2_2_14B_i2v.json `
+  --profile tools\_comfyui\profiles\wan22-i2v-example.json `
+  --reference-image "C:\path\to\reference.png" `
+  --prompt "The subject walks toward the camera." `
+  --negative-prompt "looking away, distorted face, unstable motion" `
+  --duration 5 `
+  --fps 16 `
+  --output "C:\path\to\output.mp4"
+```
+
+WAN Animate2 uses the corresponding profile plus both media inputs:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\run_comfyui_workflow.py `
+  --workflow local_workflows\my_video_wan_animate2.json `
+  --profile tools\_comfyui\profiles\wan-animate2-example.json `
+  --reference-image "C:\path\to\character.png" `
+  --driving-video "C:\path\to\motion.mp4" `
+  --prompt "Preserve the character identity and follow the driving motion." `
+  --pose-prompt "Full-body centered performance." `
+  --frames 81 `
+  --output "C:\path\to\animated-character.mp4"
+```
+
+This script is for adapter integration and diagnostics. Full productions still
+use an OpenMontage pipeline, checkpoints, and human approval gates.
 
 ### Profile validation
 

@@ -47,10 +47,12 @@ Use this skill before calling `comfyui_image`, `comfyui_video`, or `comfyui_musi
 
 - Identify templated nodes before execution: prompt text, seed, dimensions, frame count, source image, sampler settings, and output filename prefix.
 - Fixed nodes are model loaders, VAEs, text encoders, LoRA loaders, schedulers, and graph wiring. Do not mutate those unless the workflow author intended that customization.
-- For `comfyui_video`, a workflow profile can bind `reference_image` to a
-  `LoadImage`-style input. The tool uploads `reference_image_path` or
-  `reference_image_url` to ComfyUI and patches the returned server filename
+- For `comfyui_video`, a workflow profile can bind `reference_image`,
+  `first_frame`, `last_frame`, or `driving_video`. The tool uploads the matching
+  `*_path` or `*_url` input to ComfyUI and patches the returned server filename
   into that declared binding before submission.
+- A declared `filename_prefix` binding defaults to `video/<output stem>` and
+  may be overridden by the caller.
 - For community workflows, inspect each loader node and note every required model or custom node before running. Missing models should be handled through the tool's structured `missing_models` payload when available.
 
 ## Model and LoRA Setup
@@ -65,6 +67,9 @@ Use this skill before calling `comfyui_image`, `comfyui_video`, or `comfyui_musi
 - For custom workflows, provide `workflow_name` and `workflow_model` when known.
 - Provide `workflow_model_stack` for reproducibility when the workflow is not bundled. Include base checkpoint or diffusion model, quantization, text encoder, VAE, LoRAs and strengths, sampler or scheduler, steps, and guidance if the workflow exposes them.
 - The tools record the final workflow hash. Treat that hash plus the model stack, seed, dimensions, and prompt as the reproducibility contract.
+- Profile-bound video provenance also records the profile name/version/hash,
+  declared and applied bindings, and common loader assets inferred from the
+  final graph when `workflow_model_stack` is not supplied.
 
 ## Failure Handling
 
