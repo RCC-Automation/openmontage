@@ -676,7 +676,7 @@ class ComfyUIVideo(BaseTool):
             "prompt": inputs["prompt"],
             "operation": operation,
             "output": str(paths[0]),
-            "format": "mp4",
+            "format": paths[0].suffix.lower().lstrip(".") or output_path.suffix.lower().lstrip("."),
             "workflow_provenance": provenance,
             "hosted": partner_execution,
             "network_required": partner_execution,
@@ -691,7 +691,7 @@ class ComfyUIVideo(BaseTool):
                     "billing": "ComfyUI Partner Node credits",
                 }
             )
-        else:
+        elif result_data["format"] != "gif":
             result_data.update(
                 self._local_result_metadata(
                     inputs, operation, applied_profile_values

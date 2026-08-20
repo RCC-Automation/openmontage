@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "name": "flux-custom",
+  "output_node": "9",
+  "bindings": {
+    "prompt": {"node": "56:51", "input": "text"},
+    "seed": {"node": "56:52", "input": "seed"},
+    "steps": {"node": "56:52", "input": "steps"},
+    "guidance": {"node": "56:52", "input": "cfg"},
+    "width": {"node": "56:50", "input": "width"},
+    "height": {"node": "56:50", "input": "height"},
+    "filename_prefix": {"node": "9", "input": "filename_prefix"}
+  }
+}

@@ -31,6 +31,12 @@ from tools._comfyui.metadata import (
     model_stack,
     workflow_hash,
 )
+from tools._comfyui.profiles import (
+    WorkflowProfileError,
+    apply_workflow_bindings,
+    load_workflow_profile,
+    parse_workflow_profile_json,
+)
 
 _WORKFLOWS = Path(__file__).resolve().parent.parent / "_comfyui" / "workflows"
 
@@ -69,6 +75,7 @@ class ComfyUIImage(BaseTool):
         "seed": True,
         "custom_size": True,
         "custom_workflow": True,
+        "custom_workflow_profile": True,
         "custom_output_node": True,
         "offline": True,
     }
@@ -106,6 +113,22 @@ class ComfyUIImage(BaseTool):
             "output_node": {
                 "type": "string",
                 "description": "ComfyUI output node ID for custom workflow_json/workflow_path.",
+            },
+            "workflow_profile_json": {
+                "type": "string",
+                "description": "Inline OpenMontage binding profile for a custom workflow.",
+            },
+            "workflow_profile_path": {
+                "type": "string",
+                "description": "Path to an OpenMontage binding profile for a custom workflow.",
+            },
+            "negative_prompt": {
+                "type": "string",
+                "description": "Optional negative prompt when declared by the workflow profile.",
+            },
+            "filename_prefix": {
+                "type": "string",
+                "description": "Optional ComfyUI filename prefix when declared by the profile.",
             },
             "workflow_name": {
                 "type": "string",
@@ -159,7 +182,20 @@ class ComfyUIImage(BaseTool):
 
     def execute(self, inputs: dict[str, Any]) -> ToolResult:
         custom_workflow = bool(inputs.get("workflow_json") or inputs.get("workflow_path"))
-        if custom_workflow and not inputs.get("output_node"):
+        try:
+            workflow_profile = self._load_workflow_profile(inputs)
+        except WorkflowProfileError as exc:
+            return ToolResult(success=False, error=str(exc))
+
+        if workflow_profile and not custom_workflow:
+            return ToolResult(
+                success=False,
+                error=(
+                    "workflow_profile_json/workflow_profile_path requires a custom "
+                    "workflow_json or workflow_path."
+                ),
+            )
+        if custom_workflow and not inputs.get("output_node") and not workflow_profile:
             return ToolResult(
                 success=False,
                 error=(
@@ -192,17 +228,36 @@ class ComfyUIImage(BaseTool):
                 )
 
         start = time.time()
-        seed = inputs.get("seed") or ComfyUIClient.random_seed()
+        seed = (
+            inputs["seed"]
+            if inputs.get("seed") is not None
+            else ComfyUIClient.random_seed()
+        )
         width = inputs.get("width", 1024)
         height = inputs.get("height", 1024)
         steps = inputs.get("steps", 20)
         guidance = inputs.get("guidance", 3.5)
         output_path = Path(inputs.get("output_path", f"comfyui_image_{seed}.png"))
+        applied_profile_values: dict[str, Any] = {}
 
         try:
             if custom_workflow:
                 workflow = self._load_custom_workflow(inputs)
-                output_node = str(inputs["output_node"])
+                if workflow_profile:
+                    profile_values = self._workflow_profile_values(
+                        inputs, seed, workflow_profile
+                    )
+                    if "filename_prefix" in workflow_profile["bindings"]:
+                        profile_values["filename_prefix"] = inputs.get(
+                            "filename_prefix", f"image/{output_path.stem}"
+                        )
+                    workflow = apply_workflow_bindings(
+                        workflow, workflow_profile, profile_values
+                    )
+                    applied_profile_values = profile_values
+                output_node = str(
+                    inputs.get("output_node") or workflow_profile["output_node"]
+                )
             else:
                 workflow = ComfyUIClient.load_workflow(_WORKFLOWS / "flux2-txt2img.json")
                 workflow = ComfyUIClient.patch_workflow(workflow, {
@@ -216,7 +271,12 @@ class ComfyUIImage(BaseTool):
                 output_node = "13"
 
             provenance = self._workflow_provenance(
-                inputs, custom_workflow, output_node, workflow
+                inputs,
+                custom_workflow,
+                output_node,
+                workflow,
+                workflow_profile,
+                applied_profile_values,
             )
             paths = self._client.generate(
                 workflow, output_node=output_node, dest=output_path, timeout=600,
@@ -239,7 +299,7 @@ class ComfyUIImage(BaseTool):
                 "steps": steps,
                 "guidance": guidance,
                 "output": str(paths[0]),
-                "format": "png",
+                "format": paths[0].suffix.lower().lstrip(".") or output_path.suffix.lower().lstrip("."),
                 "workflow_provenance": provenance,
             },
             artifacts=[str(p) for p in paths],
@@ -254,6 +314,48 @@ class ComfyUIImage(BaseTool):
         if inputs.get("workflow_json"):
             return json.loads(inputs["workflow_json"])
         return ComfyUIClient.load_workflow(Path(inputs["workflow_path"]))
+
+    @staticmethod
+    def _load_workflow_profile(
+        inputs: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        inline = inputs.get("workflow_profile_json")
+        path = inputs.get("workflow_profile_path")
+        if inline and path:
+            raise WorkflowProfileError(
+                "Provide only one of workflow_profile_json or workflow_profile_path"
+            )
+        if inline:
+            return parse_workflow_profile_json(inline)
+        if path:
+            return load_workflow_profile(Path(path))
+        return None
+
+    @staticmethod
+    def _workflow_profile_values(
+        inputs: dict[str, Any],
+        seed: int,
+        workflow_profile: dict[str, Any],
+    ) -> dict[str, Any]:
+        values: dict[str, Any] = {
+            "prompt": inputs["prompt"],
+            "seed": seed,
+        }
+        for name in (
+            "negative_prompt",
+            "width",
+            "height",
+            "steps",
+            "guidance",
+        ):
+            if name in inputs:
+                values[name] = inputs[name]
+        declared_bindings = workflow_profile["bindings"]
+        return {
+            name: value
+            for name, value in values.items()
+            if name in declared_bindings
+        }
 
     @staticmethod
     def _model_name(inputs: dict[str, Any], custom_workflow: bool) -> str:
@@ -272,6 +374,8 @@ class ComfyUIImage(BaseTool):
         custom_workflow: bool,
         output_node: str,
         workflow: dict[str, Any],
+        workflow_profile: dict[str, Any] | None = None,
+        applied_profile_values: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         if not custom_workflow:
             return {
@@ -281,7 +385,7 @@ class ComfyUIImage(BaseTool):
                 "model_stack": model_stack("flux2-txt2img", inputs),
                 "output_node": output_node,
             }
-        return {
+        provenance = {
             "source": "user_supplied",
             "workflow_name": inputs.get("workflow_name"),
             "workflow_path": inputs.get("workflow_path"),
@@ -295,3 +399,14 @@ class ComfyUIImage(BaseTool):
             ),
             "output_node": output_node,
         }
+        if workflow_profile:
+            provenance["workflow_profile"] = {
+                "name": workflow_profile["name"],
+                "version": workflow_profile["version"],
+                "path": inputs.get("workflow_profile_path"),
+                "source": "path" if inputs.get("workflow_profile_path") else "inline",
+                "profile_hash_sha256": workflow_hash(workflow_profile),
+                "declared_bindings": sorted(workflow_profile["bindings"]),
+                "applied_bindings": dict(applied_profile_values or {}),
+            }
+        return provenance

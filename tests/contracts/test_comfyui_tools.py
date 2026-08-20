@@ -779,6 +779,104 @@ class TestCustomWorkflowContract:
             "unknown_custom_workflow"
         )
 
+    def test_video_reports_gif_artifact_without_assumed_mp4_metadata(self, tmp_path):
+        tool = ComfyUIVideo()
+        tool._client.is_available = lambda: True
+        tool._client.generate = lambda workflow, output_node, dest, **kwargs: [
+            Path(dest).with_suffix(".gif")
+        ]
+
+        result = tool.execute({
+            "prompt": "test",
+            "workflow_json": json.dumps({"42": {"inputs": {}}}),
+            "output_node": "42",
+            "output_path": str(tmp_path / "animation.mp4"),
+        })
+
+        assert result.success is True
+        assert result.data["format"] == "gif"
+        assert result.data["output"].endswith(".gif")
+        assert "fps" not in result.data
+        assert "num_frames" not in result.data
+
+    def test_image_custom_workflow_profile_applies_bindings(self, tmp_path):
+        tool = ComfyUIImage()
+        tool._client.is_available = lambda: True
+        seen = {}
+        workflow = {
+            "10": {"inputs": {"text": "baked prompt"}},
+            "11": {"inputs": {"seed": 1, "steps": 5, "cfg": 1.0}},
+            "12": {"inputs": {"width": 512, "height": 512}},
+            "20": {"inputs": {"filename_prefix": "original"}},
+        }
+        profile = {
+            "version": 1,
+            "name": "custom-flux-profile",
+            "output_node": "20",
+            "bindings": {
+                "prompt": {"node": "10", "input": "text"},
+                "seed": {"node": "11", "input": "seed"},
+                "steps": {"node": "11", "input": "steps"},
+                "guidance": {"node": "11", "input": "cfg"},
+                "width": {"node": "12", "input": "width"},
+                "height": {"node": "12", "input": "height"},
+                "filename_prefix": {"node": "20", "input": "filename_prefix"},
+            },
+        }
+
+        def fake_generate(patched, output_node, dest, **kwargs):
+            seen["workflow"] = patched
+            seen["output_node"] = output_node
+            return [Path(dest)]
+
+        tool._client.generate = fake_generate
+        result = tool.execute({
+            "prompt": "runtime prompt",
+            "seed": 0,
+            "width": 768,
+            "height": 1024,
+            "steps": 12,
+            "guidance": 2.5,
+            "workflow_json": json.dumps(workflow),
+            "workflow_profile_json": json.dumps(profile),
+            "output_path": str(tmp_path / "portrait.png"),
+        })
+
+        assert result.success is True
+        assert seen["output_node"] == "20"
+        assert seen["workflow"]["10"]["inputs"]["text"] == "runtime prompt"
+        assert seen["workflow"]["11"]["inputs"] == {
+            "seed": 0,
+            "steps": 12,
+            "cfg": 2.5,
+        }
+        assert seen["workflow"]["12"]["inputs"] == {
+            "width": 768,
+            "height": 1024,
+        }
+        assert seen["workflow"]["20"]["inputs"]["filename_prefix"] == (
+            "image/portrait"
+        )
+        profile_data = result.data["workflow_provenance"]["workflow_profile"]
+        assert profile_data["name"] == "custom-flux-profile"
+        assert profile_data["applied_bindings"]["prompt"] == "runtime prompt"
+        assert profile_data["applied_bindings"]["seed"] == 0
+
+    def test_image_profile_requires_custom_workflow(self):
+        tool = ComfyUIImage()
+        result = tool.execute({
+            "prompt": "test",
+            "workflow_profile_json": json.dumps({
+                "version": 1,
+                "name": "orphan",
+                "output_node": "20",
+                "bindings": {"prompt": {"node": "10", "input": "text"}},
+            }),
+        })
+
+        assert result.success is False
+        assert "requires a custom" in result.error
+
     def test_video_custom_workflow_profile_path_applies_bindings(self, tmp_path):
         tool = ComfyUIVideo()
         tool._client.is_available = lambda: True
