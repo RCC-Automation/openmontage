@@ -209,6 +209,19 @@ class TestClientHelpers:
         assert isinstance(w, dict)
         assert "1" in w
 
+    def test_load_workflow_uses_utf8_on_windows(self, tmp_path):
+        from tools._comfyui.client import ComfyUIClient
+
+        path = tmp_path / "unicode-workflow.json"
+        path.write_text(
+            json.dumps({"1": {"inputs": {"text": "cinematic — café"}}}),
+            encoding="utf-8",
+        )
+
+        workflow = ComfyUIClient.load_workflow(path)
+
+        assert workflow["1"]["inputs"]["text"] == "cinematic — café"
+
     def test_patch_workflow(self):
         from tools._comfyui.client import ComfyUIClient
         w = ComfyUIClient.load_workflow(WORKFLOW_DIR / "flux2-txt2img.json")
