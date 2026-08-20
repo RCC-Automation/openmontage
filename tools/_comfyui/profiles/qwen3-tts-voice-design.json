@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "name": "qwen3-tts-voice-design",
+  "output_node": "56",
+  "bindings": {
+    "text": {"node": "60", "input": "text"},
+    "instructions": {"node": "63", "input": "custom_instruct"},
+    "character": {"node": "63", "input": "character"},
+    "style": {"node": "63", "input": "style"},
+    "model_size": {"node": "60", "input": "model_size"},
+    "language": {"node": "60", "input": "language"},
+    "unload_models": {"node": "60", "input": "unload_models"},
+    "seed": {"node": "60", "input": "seed"},
+    "filename_prefix": {"node": "56", "input": "filename_prefix"}
+  }
+}

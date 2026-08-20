@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "name": "qwen3-tts-voice-clone",
+  "output_node": "58",
+  "bindings": {
+    "text": {"node": "59", "input": "target_text"},
+    "reference_text": {"node": "59", "input": "reference_text"},
+    "reference_audio": {"node": "62", "input": "audio"},
+    "x_vector_only": {"node": "59", "input": "x_vector_only"},
+    "model_size": {"node": "59", "input": "model_size"},
+    "language": {"node": "59", "input": "language"},
+    "unload_models": {"node": "59", "input": "unload_models"},
+    "seed": {"node": "59", "input": "seed"},
+    "filename_prefix": {"node": "58", "input": "filename_prefix"}
+  }
+}

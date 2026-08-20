@@ -78,6 +78,7 @@ VIDEO_GEN_LOCAL_MODEL=       # wan2.1-1.3b, wan2.1-14b, hunyuan-1.5, ltx2-local,
 # COMFYUI (optional overrides; localhost:8188 is the default)
 COMFYUI_SERVER_URL=          # Local ComfyUI server for shared workflows
 COMFYUI_VIDEO_SERVER_URL=    # Optional video-specific ComfyUI server
+COMFYUI_TTS_SERVER_URL=      # Optional Qwen3-TTS-specific ComfyUI server
 ```
 
 ---

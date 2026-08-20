@@ -1,0 +1,5 @@
+{
+  "57": {"inputs": {"filename_prefix": "audio/ComfyUI", "quality": "V0", "audio": ["61", 0]}, "class_type": "SaveAudioMP3", "_meta": {"title": "Save Audio (MP3) (DEPRECATED)"}},
+  "61": {"inputs": {"text": "Morning spills across the floor.", "speaker": "Ryan", "model_size": "1.7B", "language": "Auto", "instruct": ["64", 0], "unload_models": true, "seed": 1074040093007792}, "class_type": "AILab_Qwen3TTSCustomVoice", "_meta": {"title": "Custom Voice (QwenTTS)"}},
+  "64": {"inputs": {"character": "Male", "style": "Gentle", "custom_instruct": "Make the voice feel emotional"}, "class_type": "AILab_Qwen3TTSVoiceInstruct", "_meta": {"title": "Voice Instruct (QwenTTS)"}}
+}

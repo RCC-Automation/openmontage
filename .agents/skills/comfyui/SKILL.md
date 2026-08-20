@@ -1,6 +1,6 @@
 ---
 name: comfyui
-description: Use when working with ComfyUI workflows in OpenMontage, including comfyui_image/comfyui_video/comfyui_music, custom workflow_json/workflow_path inputs, output_node selection, missing model setup, LoRAs, low-VRAM workflow choices, and community workflow imports.
+description: Use when working with ComfyUI workflows in OpenMontage, including comfyui_image/comfyui_video/comfyui_music/comfyui_tts, custom workflow inputs, output_node selection, missing model setup, LoRAs, low-VRAM workflow choices, and community workflow imports.
 ---
 
 # ComfyUI Workflows in OpenMontage
@@ -10,7 +10,7 @@ Use this skill before calling `comfyui_image`, `comfyui_video`, or `comfyui_musi
 ## Server Contract
 
 - ComfyUI must be running before the tool can generate. The default server is `http://localhost:8188`; override it with `COMFYUI_SERVER_URL`.
-- Running separate ComfyUI instances per capability (different GPU, different model set)? `COMFYUI_IMAGE_SERVER_URL` / `COMFYUI_VIDEO_SERVER_URL` / `COMFYUI_MUSIC_SERVER_URL` each override `COMFYUI_SERVER_URL` for that one tool only. Optional -- a single-server setup needs none of these.
+- Running separate ComfyUI instances per capability (different GPU, different model set)? `COMFYUI_IMAGE_SERVER_URL` / `COMFYUI_VIDEO_SERVER_URL` / `COMFYUI_MUSIC_SERVER_URL` / `COMFYUI_TTS_SERVER_URL` each override `COMFYUI_SERVER_URL` for that one tool only. Optional -- a single-server setup needs none of these.
 - Health and hardware status come from `GET /system_stats`.
 - Jobs are submitted to `POST /prompt`, completed outputs are read from `GET /history/{prompt_id}`, and artifact bytes are downloaded with `GET /view`.
 - Long waits (video, music) prefer ComfyUI's websocket feed for immediate completion/error detection and transparently fall back to REST polling if `websocket-client` isn't installed. Either way, a timeout is recoverable: pass the error's `prompt_id` back in as `resume_prompt_id` to resume waiting on the same job instead of resubmitting it.
@@ -86,3 +86,11 @@ Use this skill before calling `comfyui_image`, `comfyui_video`, or `comfyui_musi
 - Need ACE-Step 1.5, a different node pack, or a non-ACE-Step audio model? Fall back to `workflow_json`/`workflow_path` + `output_node`, exactly like a custom image/video workflow -- in that mode `prompt` becomes provenance/logging only again and must already be baked into the graph.
 - `output_node` (bundled or custom) should be the node that writes the final audio -- the bundled workflow's is `SaveAudioMP3`. The client reads artifacts from that node's `"audio"` output key (parallel to `"images"` for image/video savers).
 - For custom workflows, provide `workflow_name`/`workflow_model`/`workflow_model_stack` for provenance exactly as you would for a custom image/video workflow.
+
+## Qwen3-TTS (`comfyui_tts`)
+
+- The integrated user workflow is split into three independently executable graphs: `voice_design`, `custom_voice`, and `voice_clone`. This prevents ComfyUI from evaluating all three saver branches for every narration request.
+- `voice_design` accepts `character`, `style_name`, and concrete delivery `instructions`; `custom_voice` additionally accepts a bundled `speaker` name; `voice_clone` requires `reference_audio_path` and optionally accepts an exact `reference_text` transcript.
+- Reference audio is uploaded to ComfyUI's input directory and bound to the graph's `LoadAudio` node. Use clean, single-speaker audio without music or room echo; provide `reference_text` when known for better cloning consistency.
+- All modes bind `text`, `language`, `model_size`, `seed`, `unload_models`, and the MP3 filename prefix through validated workflow profiles in `tools/_comfyui/profiles/`.
+- The required custom node classes are `AILab_Qwen3TTSVoiceDesign`, `AILab_Qwen3TTSCustomVoice`, `AILab_Qwen3TTSVoiceClone`, and `AILab_Qwen3TTSVoiceInstruct`. The current graph uses `SaveAudioMP3`; ComfyUI labels it deprecated but still exposes it on the validated local installation.

@@ -17,6 +17,7 @@ class AspectRatio(str, Enum):
     SQUARE_1_1 = "1:1"
     CINEMATIC_21_9 = "21:9"
     STANDARD_4_3 = "4:3"
+    PORTRAIT_3_4 = "3:4"
 
 
 @dataclass(frozen=True)
@@ -88,6 +89,14 @@ INSTAGRAM_FEED = MediaProfile(
     notes="Instagram feed video (square)",
 )
 
+PORTRAIT_3_4 = MediaProfile(
+    name="portrait_3_4",
+    width=576, height=768,
+    aspect_ratio=AspectRatio.PORTRAIT_3_4,
+    fps=30, codec="libx264", audio_codec="aac", crf=20,
+    notes="Generic portrait 3:4 output for locally generated media",
+)
+
 TIKTOK = MediaProfile(
     name="tiktok",
     width=1080, height=1920,
@@ -133,7 +142,7 @@ GENERIC_HD = MediaProfile(
 ALL_PROFILES: dict[str, MediaProfile] = {
     p.name: p for p in [
         YOUTUBE_LANDSCAPE, YOUTUBE_4K, YOUTUBE_SHORTS,
-        INSTAGRAM_REELS, INSTAGRAM_FEED,
+        INSTAGRAM_REELS, INSTAGRAM_FEED, PORTRAIT_3_4,
         TIKTOK, LINKEDIN, CINEMATIC, GENERIC_HD,
     ]
 }

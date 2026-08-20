@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "name": "qwen3-tts-custom-voice",
+  "output_node": "57",
+  "bindings": {
+    "text": {"node": "61", "input": "text"},
+    "speaker": {"node": "61", "input": "speaker"},
+    "instructions": {"node": "64", "input": "custom_instruct"},
+    "character": {"node": "64", "input": "character"},
+    "style": {"node": "64", "input": "style"},
+    "model_size": {"node": "61", "input": "model_size"},
+    "language": {"node": "61", "input": "language"},
+    "unload_models": {"node": "61", "input": "unload_models"},
+    "seed": {"node": "61", "input": "seed"},
+    "filename_prefix": {"node": "57", "input": "filename_prefix"}
+  }
+}

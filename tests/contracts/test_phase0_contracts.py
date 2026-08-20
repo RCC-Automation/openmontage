@@ -591,6 +591,11 @@ class TestMediaProfiles:
         assert p.width == 1920
         assert p.height == 1080
 
+    def test_portrait_3_4_profile(self):
+        p = get_profile("portrait_3_4")
+        assert (p.width, p.height) == (576, 768)
+        assert p.aspect_ratio.value == "3:4"
+
     def test_ffmpeg_args(self):
         args = ffmpeg_output_args(get_profile("tiktok"))
         assert "-c:v" in args

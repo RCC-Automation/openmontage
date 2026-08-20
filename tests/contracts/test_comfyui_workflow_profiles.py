@@ -59,6 +59,9 @@ def test_load_workflow_profile(tmp_path):
         "wan22-flf2v-example.json",
         "wan-animate2-example.json",
         "wan21-scail2-character-replacement-example.json",
+        "qwen3-tts-voice-design.json",
+        "qwen3-tts-custom-voice.json",
+        "qwen3-tts-voice-clone.json",
     ],
 )
 def test_bundled_example_profiles_have_valid_shape(profile_name):
