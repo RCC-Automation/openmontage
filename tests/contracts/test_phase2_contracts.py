@@ -167,10 +167,12 @@ class TestPhase2ErrorHandling:
         r = tool.execute({"input_path": "/nonexistent.mp4"})
         assert not r.success
 
-    def test_image_selector_no_provider(self):
+    def test_image_selector_no_provider(self, tmp_path):
         tool = ImageSelector()
-        # Will fail if no API key or local model
-        r = tool.execute({"prompt": "test"})
+        # An output_path is mandatory even on the "no provider" path: when one
+        # *is* configured this really renders, and without a path it writes into
+        # the repo root and costs ~26 GPU-seconds every full test run.
+        r = tool.execute({"prompt": "test", "output_path": str(tmp_path / "probe.png")})
         # Either succeeds (provider available) or fails gracefully
         assert isinstance(r, ToolResult)
 

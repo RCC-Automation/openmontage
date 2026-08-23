@@ -30,6 +30,13 @@ from tools.base_tool import (
     ToolTier,
 )
 from tools._comfyui.vrgdg import VRGDGClient
+from lib.model_registry import (
+    DRIVERS,
+    ModelRegistry,
+    default_ledger_path,
+    default_models_root,
+    resolve_driver,
+)
 from lib.render_clock import (
     PlanItem,
     RenderBudget,
@@ -55,6 +62,61 @@ from lib.screen_test import (
     slugify,
     write_report,
 )
+
+
+def _route_for(driver: dict[str, Any]) -> str:
+    """Timing key for a driver. Families time differently, so they learn apart."""
+    if driver["graph_source"] == "vrgdg_build":
+        return route_key("comfyui_image", "vrgdg", str(driver["kind"]))
+    return route_key("comfyui_image", "bundled", str(driver["workflow"]))
+
+
+def _render_request(
+    driver: dict[str, Any],
+    *,
+    candidate: Any,
+    prompt: str,
+    seed: int,
+    settings: dict[str, Any],
+    inputs: dict[str, Any],
+    output_path: Path,
+) -> dict[str, Any]:
+    """Build the ComfyUIImage call for one candidate on its own graph source."""
+    if driver["graph_source"] == "vrgdg_build":
+        payload = {
+            **settings,
+            "unet_name": candidate.model,
+            # The registry knows each family's encoder and VAE; an explicit
+            # input still wins, because the Builder's saved defaults are the
+            # only record of what actually works on this machine.
+            "clip_name": inputs.get("clip_name") or driver.get("clip_name", ""),
+            "vae_name": inputs.get("vae_name") or driver.get("vae_name", ""),
+            "seed": seed,
+            "seed_mode": "fixed",
+        }
+        if candidate.loras:
+            payload["use_custom_loras"] = True
+            payload["lora_count"] = len(candidate.loras)
+            for slot, (name, strength) in enumerate(candidate.loras, start=1):
+                payload[f"lora_{slot}"] = name
+                payload[f"strength_{slot}"] = strength
+                payload[f"first_pass_strength_{slot}"] = strength
+                payload[f"second_pass_strength_{slot}"] = strength
+        return {
+            "prompt": prompt,
+            "vrgdg_build": {"kind": driver["kind"], "payload": payload},
+            "output_path": str(output_path),
+        }
+
+    # Bundled workflow: the checkpoint carries its own encoder and VAE, so the
+    # only thing that varies between candidates is which file gets loaded.
+    return {
+        "prompt": prompt,
+        "workflow_variant": "juggernaut_xl_ragnarok",
+        "checkpoint_name": candidate.model,
+        "seed": seed,
+        "output_path": str(output_path),
+    }
 
 
 class ScreenTest(BaseTool):
@@ -219,16 +281,24 @@ class ScreenTest(BaseTool):
         pixels = int(settings.get("second_pass_width", 1920)) * int(
             settings.get("second_pass_height", 1080)
         )
-        key = route_key("comfyui_image", "vrgdg", str(inputs.get("kind", "zimage")))
-        plan = [
-            PlanItem(
-                label=c.label,
-                route_key=key,
-                count=len(conditions) * len(seeds),
-                pixels=pixels,
+        # An SDXL checkpoint and a Z-Image UNet do not cost the same, so each
+        # candidate is estimated against the route that will actually run it.
+        registry = ModelRegistry.load(default_models_root(), default_ledger_path())
+        default_key = route_key(
+            "comfyui_image", "vrgdg", str(inputs.get("kind", "zimage"))
+        )
+        plan = []
+        for c in candidates:
+            ledger_key = registry.key_for_basename(c.model)
+            driver = registry.driver_for(ledger_key) if ledger_key else None
+            plan.append(
+                PlanItem(
+                    label=c.label,
+                    route_key=_route_for(driver) if driver else default_key,
+                    count=len(conditions) * len(seeds),
+                    pixels=pixels,
+                )
             )
-            for c in candidates
-        ]
         return plan, candidates, conditions, seeds, settings, preset
 
     def execute(self, inputs: dict[str, Any]) -> ToolResult:
@@ -274,7 +344,21 @@ class ScreenTest(BaseTool):
             "seeds": len(seeds),
             "renders": cost.renders,
             "estimated_minutes": round(cost.total_minutes, 1),
-            "estimate_warnings": (verdict.warnings if verdict else []),
+            # A route with no history contributes nothing to the total, which is
+            # the honest choice - but silence would read as "free". Say how many
+            # renders the estimate does not cover, budget or no budget.
+            "estimate_warnings": (verdict.warnings if verdict else []) + (
+                [
+                    f"{sum(l.item.count for l in cost.unknown_lines)} of "
+                    f"{cost.renders} renders are on routes never measured here "
+                    f"({', '.join(sorted({l.item.route_key for l in cost.unknown_lines}))})"
+                    " - they are excluded from the estimate, so the real time "
+                    "will be higher"
+                ]
+                if cost.has_unknowns
+                else []
+            ),
+            "unmeasured_renders": sum(l.item.count for l in cost.unknown_lines),
             "heaviest": [
                 {"label": l.item.label, "minutes": round(l.total_minutes, 1)}
                 for l in cost.heaviest(3)
@@ -308,7 +392,23 @@ class ScreenTest(BaseTool):
         generator = ComfyUIImage()
         budget = RenderBudget(float(budget_minutes)) if budget_minutes else None
         out_root = project_dir / "casting" / slugify(inputs["character"])
-        route = route_key("comfyui_image", "vrgdg", str(inputs.get("kind", "zimage")))
+
+        # Candidates are not interchangeable: a Z-Image UNet renders through a
+        # VRGDG build route, an SDXL checkpoint through the bundled workflow.
+        # The registry says which, per file, so one sweep can mix families.
+        registry = ModelRegistry.load(default_models_root(), default_ledger_path())
+        if not registry.entries:
+            registry.scan()
+            registry.save()
+        fallback_driver = DRIVERS.get(str(inputs.get("kind", "zimage")).replace(
+            "zimage", "z-image"
+        ))
+        # Bind each family's encoder and VAE to filenames this server actually
+        # has; the templates name the pack author's files, which are not ours.
+        from tools._comfyui.client import ComfyUIClient
+
+        installed = ComfyUIClient().list_models()
+        clips, vaes = installed.get("clip", []), installed.get("vae", [])
 
         results: list[CandidateResult] = []
         failures: list[str] = []
@@ -316,43 +416,57 @@ class ScreenTest(BaseTool):
 
         for candidate in candidates:
             result = CandidateResult(candidate=candidate)
+            ledger_key = registry.key_for_basename(candidate.model)
+            driver = (
+                registry.driver_for(ledger_key) if ledger_key else None
+            ) or fallback_driver
+            if driver is None:
+                entry = registry.entries.get(ledger_key or "", {})
+                failures.append(
+                    f"{candidate.label}: no graph source can drive this model"
+                    + (f" ({entry['reason']})" if entry.get("reason") else "")
+                )
+                continue
+            route = _route_for(driver)
+            driver = resolve_driver(driver, clips=clips, vaes=vaes)
+            if driver["graph_source"] == "vrgdg_build" and not driver.get("vae_name"):
+                # Better to say so now than to die inside VAEDecode minutes in.
+                failures.append(
+                    f"{candidate.label}: no installed VAE matches "
+                    f"{driver.get('vae_candidates')}"
+                )
+                continue
+
             for condition in conditions:
                 prompt = build_prompt(inputs["brief"], condition)
                 for seed in seeds:
                     if budget is not None and not budget.affords(timings.estimate(route)):
                         stopped_early = True
                         break
-                    payload = {
-                        **settings,
-                        "unet_name": candidate.model,
-                        "clip_name": inputs.get("clip_name", ""),
-                        "vae_name": inputs.get("vae_name", ""),
-                        "seed": int(seed),
-                        "seed_mode": "fixed",
-                    }
-                    if candidate.loras:
-                        payload["use_custom_loras"] = True
-                        payload["lora_count"] = len(candidate.loras)
-                        for slot, (name, strength) in enumerate(candidate.loras, start=1):
-                            payload[f"lora_{slot}"] = name
-                            payload[f"strength_{slot}"] = strength
-                            payload[f"first_pass_strength_{slot}"] = strength
-                            payload[f"second_pass_strength_{slot}"] = strength
 
                     out_path = out_root / candidate.id / f"{condition_id(condition)}_s{seed}.png"
-                    render_started = time.time()
-                    outcome = generator.execute(
-                        {
-                            "prompt": prompt,
-                            "vrgdg_build": {"kind": inputs.get("kind", "zimage"), "payload": payload},
-                            "output_path": str(out_path),
-                        }
+                    request = _render_request(
+                        driver,
+                        candidate=candidate,
+                        prompt=prompt,
+                        seed=int(seed),
+                        settings=settings,
+                        inputs=inputs,
+                        output_path=out_path,
                     )
+                    render_started = time.time()
+                    outcome = generator.execute(request)
                     elapsed = time.time() - render_started
 
                     if not outcome.success:
                         failures.append(f"{candidate.label} / {condition_id(condition)} / {seed}: {outcome.error}")
+                        if ledger_key:
+                            registry.record_run(
+                                ledger_key, ok=False, error=str(outcome.error)
+                            )
                         continue
+                    if ledger_key:
+                        registry.record_run(ledger_key, ok=True, seconds=elapsed)
                     timings.record(route, elapsed, pixels=plan[0].pixels)
                     if budget is not None:
                         budget.spend(elapsed)
@@ -373,6 +487,9 @@ class ScreenTest(BaseTool):
                 break
 
         timings.save()
+        # What the renders proved outlives this run: a model that failed to load
+        # is demoted, one that worked is confirmed, both with the evidence.
+        registry.save()
 
         if not results:
             return ToolResult(

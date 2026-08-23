@@ -1418,6 +1418,82 @@ class TestJuggernautBundledImageWorkflow:
             "juggernaut-xl-ragnarok-txt2img.json"
         )
 
+    def _tool(self, seen: dict, missing: list | None = None):
+        tool = ComfyUIImage()
+        tool._client.is_available = lambda: True
+        tool._client.check_models = lambda required: (
+            list(required), list(missing or [])
+        )
+
+        def fake_generate(workflow, output_node, dest, **kwargs):
+            seen["workflow"] = workflow
+            return [Path(dest)]
+
+        tool._client.generate = fake_generate
+        return tool
+
+    def test_any_sdxl_checkpoint_can_be_loaded(self, tmp_path):
+        """The bundled graph is a driver for every SDXL file, not just one."""
+        seen: dict = {}
+        result = self._tool(seen).execute({
+            "prompt": "portrait",
+            "workflow_variant": "juggernaut_xl_ragnarok",
+            "checkpoint_name": "realismIllustriousBy_v50FP16.safetensors",
+            "output_path": str(tmp_path / "a.png"),
+        })
+        assert result.success, result.error
+        assert seen["workflow"]["1"]["inputs"]["ckpt_name"] == (
+            "realismIllustriousBy_v50FP16.safetensors"
+        )
+
+    def test_omitting_the_checkpoint_keeps_the_shipped_one(self, tmp_path):
+        seen: dict = {}
+        result = self._tool(seen).execute({
+            "prompt": "portrait",
+            "workflow_variant": "juggernaut_xl_ragnarok",
+            "output_path": str(tmp_path / "b.png"),
+        })
+        assert result.success, result.error
+        assert seen["workflow"]["1"]["inputs"]["ckpt_name"] == (
+            "juggernautXL_ragnarok.safetensors"
+        )
+
+    def test_provenance_names_the_checkpoint_that_actually_rendered(self, tmp_path):
+        """Provenance that names a model the render never used is worse than none."""
+        seen: dict = {}
+        result = self._tool(seen).execute({
+            "prompt": "portrait",
+            "workflow_variant": "juggernaut_xl_ragnarok",
+            "checkpoint_name": "mopMixtureOfPerverts_v71.safetensors",
+            "output_path": str(tmp_path / "c.png"),
+        })
+        assert result.success, result.error
+        stack = result.data["workflow_provenance"]["model_stack"]
+        checkpoints = [e for e in stack if e["role"] == "checkpoint"]
+        assert [e["name"] for e in checkpoints] == [
+            "mopMixtureOfPerverts_v71.safetensors"
+        ]
+        # The shipped download URL does not point at the swapped-in file.
+        assert "download_url" not in checkpoints[0]
+        assert result.data["workflow_provenance"]["applied_bindings"][
+            "checkpoint_name"
+        ] == "mopMixtureOfPerverts_v71.safetensors"
+
+    def test_a_missing_swapped_checkpoint_is_reported(self, tmp_path):
+        """The availability check must follow the checkpoint, not the default."""
+        seen: dict = {}
+        tool = self._tool(seen, missing=["absent.safetensors"])
+        result = tool.execute({
+            "prompt": "portrait",
+            "workflow_variant": "juggernaut_xl_ragnarok",
+            "checkpoint_name": "absent.safetensors",
+            "output_path": str(tmp_path / "d.png"),
+        })
+        assert not result.success
+        assert "absent.safetensors" in json.dumps(result.data or {}) + (
+            result.error or ""
+        )
+
     def test_auto_selects_installed_juggernaut_when_flux_is_missing(self):
         tool = ComfyUIImage()
 

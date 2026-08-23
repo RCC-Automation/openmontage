@@ -112,8 +112,15 @@ returns a ready-to-queue graph, so there are no node-ID maps to maintain.
 **`lib/vrgdg_bridge.py` (572) + `tools/video/vrgdg_project_sync.py` (512)** — the
 two-way bridge between a `scene_plan` and a VRGDG builder session.
 
+**`lib/model_registry.py`** — what every model file on the machine actually is,
+read from its header, and which graph source can drive it. Persisted to
+`var/model_registry.json` (gitignored) and corrected by what happens when a model
+runs. This is what the screen test uses to pick candidates.
+
 Verified live: a Z-Image render through `build_zimage_prompt` completed in 162 s
-with correct seed, output node and provenance.
+with correct seed, output node and provenance. All three image graph paths have
+since rendered from `screen_test`: VRGDG `zimage` (41 s), the bundled SDXL
+workflow (35 s) and VRGDG `flux_klein` (5 s).
 
 ---
 
@@ -166,10 +173,32 @@ status code.
 folder*. In a Cowork session there is no slash command — say "clock out" and the
 agent follows `.agents/skills/clock-out/SKILL.md` directly.
 
-**`screen_test` has never generated an image.** Its logic is covered by 41 tests
-and the VRGDG plumbing under it is proven, but the tool itself has not completed
-a live run. `scripts/quick_screen_test.py` was reported failing and the error was
-not captured. Treat the first live run as debugging, not production.
+**Never trust a model's filename.** `moodyRealMix_ZIT_V7Global` and
+`darkBeast30BF16INT8_dbzit9DIMRclaw` are Z-Image UNets; `gonzalomoXLFluxPony_v30FluxDAIO`
+is a Flux.1 bundle; `ace_step_1.5_turbo_aio` is audio. Use `lib/model_registry.py`,
+which reads the safetensors header, rather than matching on names. See
+DECISIONS.md #18.
+
+**There is no single encoder or VAE for a mixed sweep.** Z-Image decodes a
+16-channel latent through `ae.safetensors`; Flux.2 decodes 128 channels through
+`flux2-vae.safetensors`. Forcing one on the other fails inside `VAEDecode`
+*minutes into the render*, with a channel-count error that names neither model.
+The registry carries per-family candidates and resolves them against the server.
+See DECISIONS.md #20.
+
+**ComfyUI's HTTP server stalls while loading weights.** It serves HTTP from the
+process reading the model off disk, so a large first load can block a request for
+tens of seconds. `_history_entry` used a 10-second timeout and turned any slow
+first load into a failed render; it is now 60. If you add a request on the
+generation path, budget for the stall.
+
+**`list_models()` returns empty dicts when the server is down**, not an error.
+A caller that treats "no models" as "nothing installed" will be wrong and quiet.
+Check `is_available()` first.
+
+**`VRGDGClient.unavailable_reason()` always returns text**, whether or not the
+client is available — it is only meaningful once `is_available()` is `False`.
+Printing both makes a healthy server look broken.
 
 **The bridge shell cannot reach ComfyUI.** It is an isolated Linux VM with folders
 mounted, so `localhost:8188` is *its* localhost, not the Windows host's. Anything
@@ -183,11 +212,13 @@ construct one. See DECISIONS.md #2.
 
 ## 7. Immediate next steps
 
-1. **Finish the models.** Re-run `Install-VRGDGModels.ps1` once after the current
-   run; it verifies the two large files fetched before the completeness fix.
+1. **Finish the models.** Re-run `Install-VRGDGModels.ps1`; four files are still
+   partial, including both 22B LTX weights. Every LTX route stays dark until they
+   complete.
 2. **Restart ComfyUI**, open the VRGDG Builder once and select the LTX models.
    They save to `VRGDG_Model_Defaults`, which is what the client reads.
-3. **Commit Layer 2** (see PROGRESS.md for the exact file list).
+3. **Run the 13-model screen test** (`python scripts\quick_screen_test.py`),
+   ~8-10 min. Each render teaches the registry and the render clock.
 4. **The live round trip** — the test that proves the whole thing:
    plan a 2-scene film → `operation: "export"` → open in the Builder → render both
    scenes by hand → `operation: "import"` → confirm the manifest and cut come back

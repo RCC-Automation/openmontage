@@ -279,6 +279,32 @@ def test_dry_run_costs_the_plan_without_generating(tmp_path):
     assert result.data["plan"]["question"]
 
 
+def test_renders_on_unmeasured_routes_are_declared_not_hidden(tmp_path):
+    """A route with no history costs 0 in the estimate, which must not read as free.
+
+    Mixing families makes this reachable: the Z-Image route has history and the
+    bundled SDXL route does not, so a silent total would understate the sweep.
+    """
+    from tools.graphics.screen_test import ScreenTest
+
+    result = ScreenTest().execute(
+        {
+            "project_dir": str(tmp_path),
+            "character": "Wren",
+            "brief": "a heroine",
+            "matrix": {"models": ["never-seen-before.safetensors"]},
+            "preset": "quick",
+            "kind": "krea2",          # a real route this machine has never run
+            "dry_run": True,
+        }
+    )
+    assert result.success is True
+    plan = result.data["plan"]
+    assert plan["unmeasured_renders"] == plan["renders"]
+    assert plan["estimate_warnings"], "unmeasured renders must be stated"
+    assert "never measured" in plan["estimate_warnings"][0]
+
+
 def test_a_sweep_over_budget_is_refused_before_anything_renders(tmp_path):
     from tools.graphics.screen_test import ScreenTest
 

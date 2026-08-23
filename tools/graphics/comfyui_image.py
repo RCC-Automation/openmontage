@@ -54,6 +54,27 @@ _JUGGERNAUT_PROFILE = "juggernaut-xl-ragnarok-txt2img.json"
 _PROFILES = Path(__file__).resolve().parent.parent / "_comfyui" / "profiles"
 
 
+def _retarget_checkpoint(
+    stack: list[dict[str, Any]], checkpoint_name: str | None
+) -> list[dict[str, Any]]:
+    """Name the checkpoint that actually rendered, not the one the stack ships.
+
+    The bundled SDXL graph can be pointed at any SDXL file, so a fixed stack
+    would record the wrong model - and provenance that names a model the render
+    never used is worse than none (DECISIONS.md #7).
+    """
+    if not checkpoint_name:
+        return stack
+    retargeted = []
+    for entry in stack:
+        entry = dict(entry)
+        if entry.get("role") == "checkpoint" and entry.get("name") != checkpoint_name:
+            entry["name"] = checkpoint_name
+            entry.pop("download_url", None)     # the URL was for the shipped file
+        retargeted.append(entry)
+    return retargeted
+
+
 class ComfyUIImage(BaseTool):
     name = "comfyui_image"
     version = "0.2.0"
@@ -157,6 +178,14 @@ class ComfyUIImage(BaseTool):
                 "type": "string",
                 "description": "Path to an OpenMontage binding profile for a custom workflow.",
             },
+            "checkpoint_name": {
+                "type": "string",
+                "description": (
+                    "SDXL checkpoint filename for the bundled juggernaut_xl_ragnarok "
+                    "workflow. Any SDXL checkpoint on the server works; defaults to "
+                    "juggernautXL_ragnarok.safetensors."
+                ),
+            },
             "negative_prompt": {
                 "type": "string",
                 "description": "Optional negative prompt when declared by the workflow profile.",
@@ -251,6 +280,12 @@ class ComfyUIImage(BaseTool):
             if custom_workflow or inputs.get("vrgdg_build")
             else self._resolve_bundled_variant(inputs)
         )
+        # The bundled SDXL graph loads whatever checkpoint it is pointed at, so
+        # any SDXL file on the machine can be rendered through it. Defaults to
+        # the one the workflow ships with.
+        checkpoint_name = str(
+            inputs.get("checkpoint_name") or _JUGGERNAUT_MODELS[0]
+        )
         try:
             workflow_profile = self._load_workflow_profile(inputs)
         except WorkflowProfileError as exc:
@@ -281,7 +316,7 @@ class ComfyUIImage(BaseTool):
 
         if not custom_workflow and vrgdg_build is None:
             required_models = (
-                _JUGGERNAUT_MODELS
+                [checkpoint_name]
                 if bundled_variant == "juggernaut_xl_ragnarok"
                 else _REQUIRED_MODELS
             )
@@ -388,6 +423,7 @@ class ComfyUIImage(BaseTool):
                 workflow = ComfyUIClient.load_workflow(_WORKFLOWS / _JUGGERNAUT_WORKFLOW)
                 bundled_profile = load_workflow_profile(_PROFILES / _JUGGERNAUT_PROFILE)
                 applied_profile_values = {
+                    "checkpoint_name": checkpoint_name,
                     "prompt": inputs["prompt"],
                     "negative_prompt": inputs.get("negative_prompt", ""),
                     "width": width,
@@ -547,7 +583,10 @@ class ComfyUIImage(BaseTool):
                     "source": "bundled",
                     "workflow": _JUGGERNAUT_WORKFLOW,
                     "workflow_hash_sha256": workflow_hash(workflow),
-                    "model_stack": model_stack("juggernaut-xl-ragnarok-txt2img", inputs),
+                    "model_stack": _retarget_checkpoint(
+                        model_stack("juggernaut-xl-ragnarok-txt2img", inputs),
+                        (applied_profile_values or {}).get("checkpoint_name"),
+                    ),
                     "output_node": output_node,
                     "workflow_profile": _JUGGERNAUT_PROFILE,
                     "applied_bindings": dict(applied_profile_values or {}),

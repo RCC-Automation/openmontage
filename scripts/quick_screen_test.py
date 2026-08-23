@@ -21,6 +21,11 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from lib.checkpoint import init_project  # noqa: E402
+from lib.model_registry import (  # noqa: E402
+    ModelRegistry,
+    default_ledger_path,
+    default_models_root,
+)
 from tools._comfyui.vrgdg import VRGDGClient  # noqa: E402
 from tools.graphics.screen_test import ScreenTest  # noqa: E402
 
@@ -46,29 +51,35 @@ def main() -> int:
         print("FAIL:", client.unavailable_reason())
         return 1
 
-    # Take the model names ComfyUI actually reports, so a typo cannot waste an hour.
+    # Which files are image generators is read from their headers, not guessed
+    # from their names - "moodyRealMix_ZIT_V7Global" is a Z-Image UNet and
+    # "gonzalomoXLFluxPony_v30FluxDAIO" is a Flux.1 bundle. See lib/model_registry.
+    registry = ModelRegistry.load(default_models_root(), default_ledger_path())
+    counts = registry.scan()
+    registry.save()
+    print(f"registry: {counts['scanned']} files scanned, "
+          f"{counts['added']} new, {counts['reclassified']} reclassified")
+
     models = args.models
     if not models:
-        from tools._comfyui.client import ComfyUIClient
-
-        available = ComfyUIClient().list_models()
-        pool = available.get("diffusion_models", []) + available.get("checkpoints", [])
-        skip = ("wan", "ltx", "minimax", "acestep", "animate", "scail", "ernie")
-        models = sorted(
-            m for m in pool
-            if not any(s in m.lower() for s in skip) and m.lower().endswith((".safetensors", ".gguf"))
-        )
+        models = [Path(key).name for key in registry.eligible()]
     if not models:
-        print("FAIL: no image models found on the server.")
+        print("FAIL: no image models the installed graph sources can drive.")
+        for key, why in registry.excluded().items():
+            print(f"   excluded {Path(key).name}: {why}")
         return 1
 
-    # The Builder's saved defaults hold the encoder and VAE that actually work here.
-    defaults = {}
-    try:
-        defaults = (client.model_defaults().get("defaults") or {}).get("zimage_settings", {}) or {}
-    except Exception:
-        pass
+    unknown = registry.unknown()
+    if unknown:
+        print(f"\n{len(unknown)} file(s) need a verdict before they can be tested:")
+        for key in unknown:
+            print(f"   {Path(key).name} - {registry.entries[key]['reason']}")
+        print("   Resolve with ModelRegistry.resolve(key, eligible=True|False).\n")
 
+    # No global encoder or VAE. Once a sweep mixes families there is no single
+    # right answer: Z-Image decodes a 16-channel latent through ae.safetensors,
+    # Flux.2 a 128-channel one through flux2-vae, and forcing one on the other
+    # fails inside VAEDecode. The registry supplies each family's own pair.
     print(f"models under test ({len(models)}):")
     for m in models:
         print("   -", m)
@@ -80,8 +91,6 @@ def main() -> int:
         "brief": args.brief,
         "matrix": {"models": models},
         "preset": args.preset,
-        "clip_name": defaults.get("clip_name") or "qwen3_4b_fp8_scaled.safetensors",
-        "vae_name": defaults.get("vae_name") or "ae.safetensors",
         "dry_run": bool(args.dry_run),
     }
     if args.budget:

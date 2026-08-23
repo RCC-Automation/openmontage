@@ -328,6 +328,102 @@ as an argument for actually looking at outputs.
 
 ---
 
+## 18. Model identity is read from the file, never from its name
+
+*accepted — 2026-08-23*
+
+**Context.** The screen test filtered candidates with a substring blacklist over
+filenames. It skipped `"acestep"` while the files are named `ace_step_*`, so two
+audio models were queued as image candidates alongside a segmentation network
+and an SDXL refiner.
+
+**Decision.** Identity comes from the `.safetensors` header — a JSON map of every
+tensor name, readable in a few hundred KB with no GPU and with ComfyUI down.
+GGUF files are read through their `general.architecture` key. Filenames are
+never consulted.
+
+**Reasoning.** A blacklist is wrong in both directions and silent about it.
+`moodyRealMix_ZIT_V7Global` and `darkBeast30BF16INT8_dbzit9DIMRclaw` are
+Z-Image UNets that no name rule would have found; `gonzalomoXLFluxPony_v30FluxDAIO`
+is a Flux.1 bundle despite naming two other architectures. Tensor prefixes are
+unambiguous: `cap_embedder` is Z-Image, `double_stream_modulation` is Flux.2,
+`vector_in` + `double_blocks` is Flux.1, `detokenizer` is audio.
+
+**Consequence worth knowing:** modality must be judged on the *whole* file before
+an all-in-one bundle is unwrapped. ACE-Step keeps its vocoder under `vae.`, so
+stripping to the diffusion model first discards the only proof it is audio and
+its inner attention blocks then read as video. That bug shipped and was caught by
+a live scan.
+
+---
+
+## 19. The registry records why a model is unusable, and asks when it cannot tell
+
+*accepted — 2026-08-23*
+
+**Context.** A filter that drops a model leaves no trace. The next person sees
+eleven candidates where there are twenty-nine files and cannot tell whether the
+rest are broken, unsupported, or simply missed.
+
+**Decision.** Eligibility is three-state — eligible, excluded, unknown. Excluded
+entries carry the specific reason ("Flux.1 needs a dual-CLIP graph; no VRGDG
+template has one"), not a bare `false`. Unknown means the header did not settle
+it; those are surfaced once, and a human verdict is sticky until the file itself
+changes.
+
+**Reasoning.** This mirrors what the render clock already does with unmeasured
+routes (#15, and the clock's refusal to invent a number). The machine narrows and
+explains; it does not decide quietly.
+
+---
+
+## 20. Encoder and VAE are resolved against the server, not copied from the template
+
+*accepted — 2026-08-23*
+
+**Context.** The first mixed-family sweep died inside `VAEDecode`:
+`expected input[1, 128, 36, 64] to have 16 channels`. The screen test passed one
+global VAE (`ae.safetensors`, Z-Image's 16-channel) and Flux.2 produces a
+128-channel latent. Fixing that surfaced the next layer — the driver named
+`qwen_3_4b.safetensors` and `flux\flux2-vae.safetensors`, straight from VRGDG's
+templates, and this machine has `qwen3_4b_fp8_scaled.safetensors` and a flat
+`flux2-vae.safetensors`.
+
+**Decision.** Each family declares *candidate lists* for its encoder and VAE,
+resolved against `list_models()` before a graph is built. Matching widens in
+three steps: exact, then ignoring punctuation and case, then allowing the
+candidate to be a prefix of a longer installed name. No match resolves to `""`
+and the candidate is refused up front.
+
+**Reasoning.** HANDOFF has warned since Layer 1 that template model names are the
+pack author's, not yours — this is that trap reaching the screen test. There is
+no single right encoder once a sweep mixes families, so a global default is
+wrong by construction. Failing at submission beats failing inside `VAEDecode`
+several minutes into a render.
+
+---
+
+## 21. A render failure demotes a model only when it is about the model
+
+*accepted — 2026-08-23*
+
+**Context.** Flux.2 Klein was marked permanently ineligible by its first run. The
+error was a 10-second read timeout while ComfyUI loaded 3.8 GB of weights — the
+model was fine, the HTTP call was not.
+
+**Decision.** Failures matching transient markers (timeout, connection refused,
+reset by peer) are recorded but never demote. Only a real load or execution
+failure moves a model to ineligible.
+
+**Reasoning.** The learning loop is what keeps the registry honest, so it has to
+be right about *what* it learned. Demoting on infrastructure noise would shrink
+the usable set every time the machine was busy, and the shrinkage would look like
+knowledge. The underlying timeout was raised to 60 s: ComfyUI serves HTTP from
+the same process that loads weights, so a tight timeout turns a slow first load
+into a failed render for any large model.
+
+---
+
 ## Open questions
 
 - **Where should beat timing win?** L3 has VRGDG measure the music and snap scene

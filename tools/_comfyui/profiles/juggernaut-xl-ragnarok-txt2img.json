@@ -3,6 +3,7 @@
   "name": "juggernaut-xl-ragnarok-txt2img",
   "output_node": "7",
   "bindings": {
+    "checkpoint_name": {"node": "1", "input": "ckpt_name"},
     "prompt": {"node": "2", "input": "text"},
     "negative_prompt": {"node": "3", "input": "text"},
     "width": {"node": "4", "input": "width"},

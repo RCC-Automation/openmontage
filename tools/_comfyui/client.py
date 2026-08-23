@@ -223,8 +223,14 @@ class ComfyUIClient:
         )
 
     def _history_entry(self, prompt_id: str) -> dict | None:
-        """Return a completed history entry, or ``None`` while it is absent."""
-        resp = requests.get(f"{self.server_url}/history/{prompt_id}", timeout=10)
+        """Return a completed history entry, or ``None`` while it is absent.
+
+        The timeout is generous because ComfyUI serves HTTP from the same
+        process that loads weights: while a multi-billion-parameter model is
+        being read off disk the server can stall for tens of seconds, and a
+        tight timeout here turns a slow first load into a failed render.
+        """
+        resp = requests.get(f"{self.server_url}/history/{prompt_id}", timeout=60)
         resp.raise_for_status()
         entry = resp.json().get(prompt_id)
         if entry is None:
