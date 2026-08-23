@@ -573,6 +573,25 @@ class VRGDGClient:
             {"project_folder": project_folder, "session": dict(session)},
         )
 
+    def save_scene_image(
+        self, project_folder: str, scene_number: int, source_path: str
+    ) -> dict[str, Any]:
+        """Copy an image into a project's approved-stills folder for one scene.
+
+        VRGDG owns the naming (``zimage_approved/image_%04d.png``), so the image
+        is handed over by path and the route reports back where it landed.
+        ``scene_number`` is 1-based, matching the Builder's own numbering.
+        """
+        return self._request(
+            "POST",
+            "/vrgdg/music_builder/save_scene_image",
+            {
+                "project_folder": project_folder,
+                "scene_number": int(scene_number),
+                "source_path": str(source_path),
+            },
+        )
+
     def analyze_audio(self, audio_path: str, project_folder: str, target_peaks: int = 1600) -> dict[str, Any]:
         return self._request(
             "POST",
