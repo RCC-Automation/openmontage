@@ -557,7 +557,11 @@ class ModelRegistry:
         runs["attempts"] = runs.get("attempts", 0) + 1
         if ok:
             runs["successes"] = runs.get("successes", 0) + 1
-            runs["last_seconds"] = seconds
+            if seconds is not None:
+                # None means the render worked but was not cleanly timed (the
+                # machine was busy). Keep the last real measurement rather than
+                # erasing it with a blank.
+                runs["last_seconds"] = seconds
             runs["last_error"] = None
             if entry.get("eligible") is None:
                 entry["eligible"] = True

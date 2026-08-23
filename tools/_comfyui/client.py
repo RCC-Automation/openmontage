@@ -148,6 +148,28 @@ class ComfyUIClient:
                 result[group] = []
         return result
 
+    def queue_depth(self) -> int | None:
+        """Jobs ahead of a new submission: running + pending. None if unknown.
+
+        Used to tell a clean measurement from a contended one. Anything already
+        on the queue delays our render, and callers time from submission, so a
+        non-zero depth means the elapsed seconds are not the render's duration.
+        ``None`` (server unreachable, malformed reply) is deliberately distinct
+        from ``0`` - a caller must be able to refuse to record rather than
+        assume the machine was quiet.
+        """
+        try:
+            payload = requests.get(f"{self.server_url}/queue", timeout=10).json()
+        except Exception:
+            return None
+        if not isinstance(payload, dict):
+            return None
+        running = payload.get("queue_running")
+        pending = payload.get("queue_pending")
+        if not isinstance(running, list) or not isinstance(pending, list):
+            return None
+        return len(running) + len(pending)
+
     def check_models(self, required: list[str]) -> tuple[list[str], list[str]]:
         """Check which of *required* model filenames are available.
 

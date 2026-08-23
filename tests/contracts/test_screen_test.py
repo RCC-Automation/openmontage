@@ -305,6 +305,77 @@ def test_renders_on_unmeasured_routes_are_declared_not_hidden(tmp_path):
     assert "never measured" in plan["estimate_warnings"][0]
 
 
+class TestContendedRendersAreNotTimed:
+    """Elapsed is measured from submission, so a shared machine inflates it.
+
+    One contended sample is indistinguishable from a slow route afterwards and
+    moves the median permanently, so a busy machine must cost measurements
+    rather than produce wrong ones.
+    """
+
+    def _run(self, tmp_path, monkeypatch, depth):
+        from PIL import Image
+
+        from tools.base_tool import ToolResult
+        from tools.graphics import screen_test as module
+
+        png = tmp_path / "src.png"
+        Image.new("RGB", (64, 64), (120, 90, 60)).save(png)
+
+        class FakeImageClient:
+            def list_models(self):
+                return {"clip": ["qwen3_4b_fp8_scaled.safetensors"],
+                        "vae": ["ae.safetensors"]}
+
+            def queue_depth(self):
+                return depth
+
+        class FakeGenerator:
+            def execute(self, request):
+                out = Path(request["output_path"])
+                out.parent.mkdir(parents=True, exist_ok=True)
+                Image.open(png).save(out)
+                return ToolResult(success=True, data={})
+
+        monkeypatch.setattr(module.VRGDGClient, "is_available", lambda self: True)
+        monkeypatch.setattr(
+            "tools._comfyui.client.ComfyUIClient", lambda *a, **k: FakeImageClient()
+        )
+        monkeypatch.setattr(
+            "tools.graphics.comfyui_image.ComfyUIImage", lambda *a, **k: FakeGenerator()
+        )
+
+        timings = tmp_path / "timings.json"
+        result = module.ScreenTest().execute({
+            "project_dir": str(tmp_path),
+            "character": "Wren",
+            "brief": "a heroine",
+            "matrix": {"models": ["zImageTurbo_turbo.safetensors"]},
+            "preset": "quick",
+            "registry_path": str(tmp_path / "registry.json"),
+            "models_root": str(tmp_path / "models"),
+            "timings_path": str(timings),
+        })
+        return result, timings
+
+    def test_an_idle_machine_records_the_timing(self, tmp_path, monkeypatch):
+        result, timings = self._run(tmp_path, monkeypatch, depth=0)
+        assert result.success, result.error
+        assert result.data["contended_renders"] == 0
+        assert timings.is_file(), "a clean render must teach the clock"
+
+    def test_a_busy_machine_does_not_record_the_timing(self, tmp_path, monkeypatch):
+        result, _ = self._run(tmp_path, monkeypatch, depth=2)
+        assert result.success, result.error
+        assert result.data["contended_renders"] == 1
+        assert result.data["shortlist"], "the image is still usable"
+
+    def test_an_unknown_queue_depth_is_treated_as_busy(self, tmp_path, monkeypatch):
+        """Unable to tell must mean "do not record", never "assume quiet"."""
+        result, _ = self._run(tmp_path, monkeypatch, depth=None)
+        assert result.data["contended_renders"] == 1
+
+
 def test_a_sweep_over_budget_is_refused_before_anything_renders(tmp_path):
     from tools.graphics.screen_test import ScreenTest
 

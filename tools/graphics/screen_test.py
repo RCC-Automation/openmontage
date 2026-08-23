@@ -216,6 +216,18 @@ class ScreenTest(BaseTool):
                     "is spent."
                 ),
             },
+            "registry_path": {
+                "type": "string",
+                "description": "Model registry ledger. Defaults to var/model_registry.json.",
+            },
+            "models_root": {
+                "type": "string",
+                "description": "ComfyUI shared model tree the registry scans.",
+            },
+            "timings_path": {
+                "type": "string",
+                "description": "Render-clock history file. Defaults to the shared one.",
+            },
             "clip_name": {"type": "string", "description": "Text encoder for every candidate."},
             "vae_name": {"type": "string", "description": "VAE for every candidate."},
             "kind": {
@@ -283,7 +295,10 @@ class ScreenTest(BaseTool):
         )
         # An SDXL checkpoint and a Z-Image UNet do not cost the same, so each
         # candidate is estimated against the route that will actually run it.
-        registry = ModelRegistry.load(default_models_root(), default_ledger_path())
+        registry = ModelRegistry.load(
+            inputs.get("models_root") or default_models_root(),
+            inputs.get("registry_path") or default_ledger_path(),
+        )
         default_key = route_key(
             "comfyui_image", "vrgdg", str(inputs.get("kind", "zimage"))
         )
@@ -331,7 +346,8 @@ class ScreenTest(BaseTool):
                 ),
             )
 
-        timings = RenderTimings.load()
+        timings_path = inputs.get("timings_path")
+        timings = RenderTimings.load(timings_path)
         cost = estimate_plan(timings, plan)
         budget_minutes = inputs.get("budget_minutes")
         verdict = check_budget(cost, float(budget_minutes)) if budget_minutes else None
@@ -396,7 +412,10 @@ class ScreenTest(BaseTool):
         # Candidates are not interchangeable: a Z-Image UNet renders through a
         # VRGDG build route, an SDXL checkpoint through the bundled workflow.
         # The registry says which, per file, so one sweep can mix families.
-        registry = ModelRegistry.load(default_models_root(), default_ledger_path())
+        registry = ModelRegistry.load(
+            inputs.get("models_root") or default_models_root(),
+            inputs.get("registry_path") or default_ledger_path(),
+        )
         if not registry.entries:
             registry.scan()
             registry.save()
@@ -407,8 +426,16 @@ class ScreenTest(BaseTool):
         # has; the templates name the pack author's files, which are not ours.
         from tools._comfyui.client import ComfyUIClient
 
-        installed = ComfyUIClient().list_models()
+        image_client = ComfyUIClient()
+        installed = image_client.list_models()
         clips, vaes = installed.get("clip", []), installed.get("vae", [])
+        contended = 0
+        starting_depth = image_client.queue_depth()
+        if starting_depth:
+            plan_summary.setdefault("estimate_warnings", []).append(
+                f"ComfyUI already has {starting_depth} job(s) queued - this sweep "
+                "waits behind them, and renders that wait are not timed"
+            )
 
         results: list[CandidateResult] = []
         failures: list[str] = []
@@ -454,9 +481,16 @@ class ScreenTest(BaseTool):
                         inputs=inputs,
                         output_path=out_path,
                     )
+                    # Elapsed is measured from submission, so anything already
+                    # queued is counted as our render time. One contended
+                    # sample is indistinguishable from a genuinely slow route
+                    # afterwards, and it moves the median for good - so measure
+                    # the machine first and decline to record when it is busy.
+                    queue_depth = image_client.queue_depth()
                     render_started = time.time()
                     outcome = generator.execute(request)
                     elapsed = time.time() - render_started
+                    measurable = queue_depth == 0
 
                     if not outcome.success:
                         failures.append(f"{candidate.label} / {condition_id(condition)} / {seed}: {outcome.error}")
@@ -466,8 +500,15 @@ class ScreenTest(BaseTool):
                             )
                         continue
                     if ledger_key:
-                        registry.record_run(ledger_key, ok=True, seconds=elapsed)
-                    timings.record(route, elapsed, pixels=plan[0].pixels)
+                        registry.record_run(
+                            ledger_key,
+                            ok=True,
+                            seconds=elapsed if measurable else None,
+                        )
+                    if measurable:
+                        timings.record(route, elapsed, pixels=plan[0].pixels)
+                    else:
+                        contended += 1
                     if budget is not None:
                         budget.spend(elapsed)
                     result.shots.append(
@@ -486,7 +527,9 @@ class ScreenTest(BaseTool):
             if stopped_early:
                 break
 
-        timings.save()
+        # Save where we loaded from - a load/save asymmetry would write an
+        # override's samples into the shared history.
+        timings.save(timings_path)
         # What the renders proved outlives this run: a model that failed to load
         # is demoted, one that worked is confirmed, both with the evidence.
         registry.save()
@@ -530,6 +573,10 @@ class ScreenTest(BaseTool):
             success=True,
             data={
                 "plan": plan_summary,
+                # Renders that shared the machine. Their images are fine; only
+                # their timings were discarded, so the clock learns from fewer
+                # samples rather than from wrong ones.
+                "contended_renders": contended,
                 "shortlist": [
                     {
                         "rank": i + 1,

@@ -370,6 +370,15 @@ class TestLearningFromRuns:
         registry.record_run(key, ok=True, seconds=41.5)
         assert registry.entries[key]["runs"]["last_seconds"] == 41.5
 
+    def test_an_untimed_success_does_not_erase_the_last_measurement(self, tmp_path):
+        """A render that shared the machine still counts, but its clock does not."""
+        registry, key = self._registry(tmp_path)
+        registry.record_run(key, ok=True, seconds=41.0)
+        registry.record_run(key, ok=True, seconds=None)
+        runs = registry.entries[key]["runs"]
+        assert runs["successes"] == 2
+        assert runs["last_seconds"] == 41.0
+
     def test_recording_an_unknown_key_is_a_no_op(self, tmp_path):
         registry, _ = self._registry(tmp_path)
         registry.record_run("nope.safetensors", ok=False, error="x")  # must not raise

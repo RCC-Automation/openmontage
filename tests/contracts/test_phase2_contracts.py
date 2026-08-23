@@ -169,9 +169,13 @@ class TestPhase2ErrorHandling:
 
     def test_image_selector_no_provider(self, tmp_path):
         tool = ImageSelector()
-        # An output_path is mandatory even on the "no provider" path: when one
-        # *is* configured this really renders, and without a path it writes into
-        # the repo root and costs ~26 GPU-seconds every full test run.
+        # This asserts the *no provider* path degrades gracefully. When one is
+        # configured it instead performs a real render, which costs ~26 GPU-
+        # seconds and — because ComfyUI runs one job at a time — blocks the
+        # whole suite for as long as anything else is queued. Skip rather than
+        # let a contract test depend on a GPU being free.
+        if tool.get_status() == ToolStatus.AVAILABLE:
+            pytest.skip("a provider is configured; this covers the unconfigured path")
         r = tool.execute({"prompt": "test", "output_path": str(tmp_path / "probe.png")})
         # Either succeeds (provider available) or fails gracefully
         assert isinstance(r, ToolResult)

@@ -1378,6 +1378,47 @@ class TestCustomWorkflowContract:
         assert any(item["role"] == "vae" for item in provenance["model_stack"])
 
 
+class TestQueueDepth:
+    """Depth tells a clean measurement from a contended one."""
+
+    def _client(self, monkeypatch, payload, raise_it=False):
+        from tools._comfyui import client as client_module
+
+        class FakeResponse:
+            def json(self):
+                return payload
+
+        def fake_get(url, **kwargs):
+            if raise_it:
+                raise OSError("server not reachable")
+            return FakeResponse()
+
+        monkeypatch.setattr(client_module.requests, "get", fake_get)
+        return client_module.ComfyUIClient()
+
+    def test_an_idle_server_reports_zero(self, monkeypatch):
+        c = self._client(monkeypatch, {"queue_running": [], "queue_pending": []})
+        assert c.queue_depth() == 0
+
+    def test_running_and_pending_are_both_counted(self, monkeypatch):
+        """A job already running delays us exactly as a queued one does."""
+        c = self._client(monkeypatch, {"queue_running": [1], "queue_pending": [2, 3]})
+        assert c.queue_depth() == 3
+
+    def test_an_unreachable_server_is_unknown_not_idle(self, monkeypatch):
+        """None must be distinct from 0 so a caller can refuse to record."""
+        c = self._client(monkeypatch, {}, raise_it=True)
+        assert c.queue_depth() is None
+
+    def test_a_malformed_reply_is_unknown(self, monkeypatch):
+        c = self._client(monkeypatch, {"queue_running": "busy"})
+        assert c.queue_depth() is None
+
+    def test_a_non_dict_reply_is_unknown(self, monkeypatch):
+        c = self._client(monkeypatch, ["unexpected"])
+        assert c.queue_depth() is None
+
+
 class TestJuggernautBundledImageWorkflow:
 
     def test_juggernaut_variant_applies_profile_and_provenance(self, tmp_path):
