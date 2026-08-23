@@ -29,8 +29,10 @@ from tools._comfyui.metadata import (
     COMFYUI_SETUP_OFFER,
     missing_models_payload,
     model_stack,
+    infer_model_stack,
     workflow_hash,
 )
+from tools._comfyui.vrgdg import VRGDGClient, VRGDGError, build_routes_for
 from tools._comfyui.profiles import (
     WorkflowProfileError,
     apply_workflow_bindings,
@@ -46,11 +48,15 @@ _REQUIRED_MODELS = [
     "mistral_3_small_flux2_fp4_mixed.safetensors",
     "flux2-vae.safetensors",
 ]
+_JUGGERNAUT_MODELS = ["juggernautXL_ragnarok.safetensors"]
+_JUGGERNAUT_WORKFLOW = "juggernaut-xl-ragnarok-txt2img.json"
+_JUGGERNAUT_PROFILE = "juggernaut-xl-ragnarok-txt2img.json"
+_PROFILES = Path(__file__).resolve().parent.parent / "_comfyui" / "profiles"
 
 
 class ComfyUIImage(BaseTool):
     name = "comfyui_image"
-    version = "0.1.0"
+    version = "0.2.0"
     tier = ToolTier.GENERATE
     capability = "image_generation"
     provider = "comfyui"
@@ -76,6 +82,8 @@ class ComfyUIImage(BaseTool):
         "custom_size": True,
         "custom_workflow": True,
         "custom_workflow_profile": True,
+        "vrgdg_builder": True,
+        "bundled_workflow_variants": True,
         "custom_output_node": True,
         "offline": True,
     }
@@ -96,6 +104,12 @@ class ComfyUIImage(BaseTool):
         "required": ["prompt"],
         "properties": {
             "prompt": {"type": "string", "description": "Text prompt for image generation"},
+            "workflow_variant": {
+                "type": "string",
+                "enum": ["auto", "flux2_dev", "juggernaut_xl_ragnarok"],
+                "default": "auto",
+                "description": "Bundled workflow to use; auto prefers FLUX 2 when installed.",
+            },
             "width": {"type": "integer", "default": 1024},
             "height": {"type": "integer", "default": 1024},
             "steps": {"type": "integer", "default": 20},
@@ -109,6 +123,27 @@ class ComfyUIImage(BaseTool):
             "workflow_path": {
                 "type": "string",
                 "description": "Optional path to a ComfyUI workflow JSON file. Requires output_node.",
+            },
+            "vrgdg_build": {
+                "type": "object",
+                "description": (
+                    "Build the graph with the VRGDG node pack instead of a stored "
+                    "workflow. {\"kind\": \"zimage\", \"payload\": {...}} — VRGDG "
+                    "patches its own template by node class_type and returns a "
+                    "ready-to-queue graph, so no binding profile is needed. "
+                    "Mutually exclusive with workflow_json/workflow_path."
+                ),
+                "properties": {
+                    "kind": {
+                        "type": "string",
+                        "description": "VRGDG image build route, e.g. zimage, krea2, flux_klein.",
+                    },
+                    "payload": {
+                        "type": "object",
+                        "description": "Route payload. Model names come from the caller, not the template.",
+                    },
+                },
+                "required": ["kind"],
             },
             "output_node": {
                 "type": "string",
@@ -163,10 +198,13 @@ class ComfyUIImage(BaseTool):
     def get_status(self) -> ToolStatus:
         if not self._client.is_available():
             return ToolStatus.UNAVAILABLE
-        _, missing = self._client.check_models(_REQUIRED_MODELS)
-        if missing:
-            return ToolStatus.DEGRADED
-        return ToolStatus.AVAILABLE
+        _, flux_missing = self._client.check_models(_REQUIRED_MODELS)
+        _, juggernaut_missing = self._client.check_models(_JUGGERNAUT_MODELS)
+        return (
+            ToolStatus.AVAILABLE
+            if not flux_missing or not juggernaut_missing
+            else ToolStatus.DEGRADED
+        )
 
     def estimate_cost(self, inputs: dict[str, Any]) -> float:
         return 0.0
@@ -178,10 +216,41 @@ class ComfyUIImage(BaseTool):
         info = super().get_info()
         info["setup_offer"] = self.setup_offer
         info["bundled_model_stack"] = BUNDLED_MODEL_STACKS["flux2-txt2img"]
+        info["bundled_workflow_variants"] = {
+            "flux2_dev": BUNDLED_MODEL_STACKS["flux2-txt2img"],
+            "juggernaut_xl_ragnarok": BUNDLED_MODEL_STACKS["juggernaut-xl-ragnarok-txt2img"],
+        }
+        info["vrgdg_build_kinds"] = {
+            route.kind: route.description for route in build_routes_for("image")
+        }
         return info
 
     def execute(self, inputs: dict[str, Any]) -> ToolResult:
+        vrgdg_build = inputs.get("vrgdg_build") or None
         custom_workflow = bool(inputs.get("workflow_json") or inputs.get("workflow_path"))
+        vrgdg_graph = None
+        vrgdg_pack_version = None
+        if vrgdg_build is not None:
+            if custom_workflow or inputs.get("workflow_profile_json") or inputs.get(
+                "workflow_profile_path"
+            ):
+                return ToolResult(
+                    success=False,
+                    error=(
+                        "vrgdg_build supplies the graph itself, so it cannot be combined "
+                        "with workflow_json/workflow_path or a workflow profile."
+                    ),
+                )
+            if not isinstance(vrgdg_build, dict) or not vrgdg_build.get("kind"):
+                return ToolResult(
+                    success=False,
+                    error='vrgdg_build requires a "kind", e.g. {"kind": "zimage", "payload": {...}}',
+                )
+        bundled_variant = (
+            None
+            if custom_workflow or inputs.get("vrgdg_build")
+            else self._resolve_bundled_variant(inputs)
+        )
         try:
             workflow_profile = self._load_workflow_profile(inputs)
         except WorkflowProfileError as exc:
@@ -210,15 +279,30 @@ class ComfyUIImage(BaseTool):
                 error=self._client.unavailable_reason(),
             )
 
-        if not custom_workflow:
-            _, missing = self._client.check_models(_REQUIRED_MODELS)
+        if not custom_workflow and vrgdg_build is None:
+            required_models = (
+                _JUGGERNAUT_MODELS
+                if bundled_variant == "juggernaut_xl_ragnarok"
+                else _REQUIRED_MODELS
+            )
+            _, missing = self._client.check_models(required_models)
             if missing:
+                workflow_key = (
+                    "juggernaut-xl-ragnarok-txt2img"
+                    if bundled_variant == "juggernaut_xl_ragnarok"
+                    else "flux2-txt2img"
+                )
+                workflow_name = (
+                    _JUGGERNAUT_WORKFLOW
+                    if bundled_variant == "juggernaut_xl_ragnarok"
+                    else "flux2-txt2img.json"
+                )
                 return ToolResult(
                     success=False,
                     data=missing_models_payload(
                         missing,
-                        workflow_key="flux2-txt2img",
-                        workflow_name="flux2-txt2img.json",
+                        workflow_key=workflow_key,
+                        workflow_name=workflow_name,
                     ),
                     error=(
                         f"ComfyUI server is running but missing required models: "
@@ -233,15 +317,57 @@ class ComfyUIImage(BaseTool):
             if inputs.get("seed") is not None
             else ComfyUIClient.random_seed()
         )
-        width = inputs.get("width", 1024)
-        height = inputs.get("height", 1024)
-        steps = inputs.get("steps", 20)
-        guidance = inputs.get("guidance", 3.5)
+        is_juggernaut = bundled_variant == "juggernaut_xl_ragnarok"
+        width = inputs.get("width", 832 if is_juggernaut else 1024)
+        height = inputs.get("height", 1216 if is_juggernaut else 1024)
+        steps = inputs.get("steps", 35 if is_juggernaut else 20)
+        guidance = inputs.get("guidance", 4.5 if is_juggernaut else 3.5)
         output_path = Path(inputs.get("output_path", f"comfyui_image_{seed}.png"))
         applied_profile_values: dict[str, Any] = {}
 
         try:
-            if custom_workflow:
+            if vrgdg_build is not None:
+                vrgdg_client = VRGDGClient()
+                if not vrgdg_client.is_available():
+                    return ToolResult(
+                        success=False, error=vrgdg_client.unavailable_reason()
+                    )
+                payload = dict(vrgdg_build.get("payload") or {})
+                payload.setdefault("prompt", inputs["prompt"])
+                payload.setdefault("seed", seed)
+                vrgdg_graph = vrgdg_client.build(str(vrgdg_build["kind"]), payload)
+                vrgdg_pack_version = vrgdg_client.pack_version()
+                output_node = str(
+                    inputs.get("output_node") or vrgdg_graph.output_node(prefer="image")
+                )
+                # VRGDG templates hang deliberate side-effect nodes (RAM/VRAM
+                # cleanup, preview branches) off the graph. Those are the
+                # author's intent, so submit the graph as built and only prune
+                # when an uninstalled node would otherwise fail validation - and
+                # then only the parts the output does not depend on.
+                missing_nodes = vrgdg_client.missing_node_types(vrgdg_graph.prompt)
+                if missing_nodes:
+                    vrgdg_graph.prune(output_node)
+                    missing_nodes = vrgdg_client.missing_node_types(vrgdg_graph.prompt)
+                if missing_nodes:
+                    return ToolResult(
+                        success=False,
+                        data={"missing_node_types": missing_nodes},
+                        error=(
+                            "The VRGDG graph needs custom nodes this ComfyUI server "
+                            "does not have, on branches the output depends on: "
+                            + "; ".join(
+                                f"{cls} (node {', '.join(ids)})"
+                                for cls, ids in sorted(missing_nodes.items())
+                            )
+                            + ". Install the packs that provide them through ComfyUI "
+                            "Manager and restart ComfyUI."
+                        ),
+                    )
+                workflow = vrgdg_graph.prompt
+                if vrgdg_graph.used_seed is not None:
+                    seed = vrgdg_graph.used_seed
+            elif custom_workflow:
                 workflow = self._load_custom_workflow(inputs)
                 if workflow_profile:
                     profile_values = self._workflow_profile_values(
@@ -258,6 +384,26 @@ class ComfyUIImage(BaseTool):
                 output_node = str(
                     inputs.get("output_node") or workflow_profile["output_node"]
                 )
+            elif bundled_variant == "juggernaut_xl_ragnarok":
+                workflow = ComfyUIClient.load_workflow(_WORKFLOWS / _JUGGERNAUT_WORKFLOW)
+                bundled_profile = load_workflow_profile(_PROFILES / _JUGGERNAUT_PROFILE)
+                applied_profile_values = {
+                    "prompt": inputs["prompt"],
+                    "negative_prompt": inputs.get("negative_prompt", ""),
+                    "width": width,
+                    "height": height,
+                    "steps": steps,
+                    "guidance": guidance,
+                    "seed": seed,
+                    "filename_prefix": inputs.get(
+                        "filename_prefix", f"image/{output_path.stem}"
+                    ),
+                }
+                workflow = apply_workflow_bindings(
+                    workflow, bundled_profile, applied_profile_values
+                )
+                workflow_profile = bundled_profile
+                output_node = bundled_profile["output_node"]
             else:
                 workflow = ComfyUIClient.load_workflow(_WORKFLOWS / "flux2-txt2img.json")
                 workflow = ComfyUIClient.patch_workflow(workflow, {
@@ -272,22 +418,33 @@ class ComfyUIImage(BaseTool):
 
             provenance = self._workflow_provenance(
                 inputs,
-                custom_workflow,
+                custom_workflow or vrgdg_graph is not None,
                 output_node,
                 workflow,
                 workflow_profile,
                 applied_profile_values,
+                bundled_variant,
             )
+            if vrgdg_graph is not None:
+                provenance.update(
+                    vrgdg_graph.provenance(pack_version=vrgdg_pack_version)
+                )
             paths = self._client.generate(
                 workflow, output_node=output_node, dest=output_path, timeout=600,
             )
 
+        except VRGDGError as exc:
+            return ToolResult(success=False, error=f"VRGDG graph build failed: {exc}")
         except ComfyUIError as exc:
             return ToolResult(success=False, error=str(exc))
         except Exception as exc:
             return ToolResult(success=False, error=f"ComfyUI image generation failed: {exc}")
 
-        model_name = self._model_name(inputs, custom_workflow)
+        model_name = self._model_name(
+            inputs, custom_workflow or vrgdg_graph is not None, bundled_variant
+        )
+        if vrgdg_graph is not None and model_name == "custom-comfyui-workflow":
+            model_name = f"vrgdg-{vrgdg_graph.kind}"
         return ToolResult(
             success=True,
             data={
@@ -358,9 +515,15 @@ class ComfyUIImage(BaseTool):
         }
 
     @staticmethod
-    def _model_name(inputs: dict[str, Any], custom_workflow: bool) -> str:
+    def _model_name(
+        inputs: dict[str, Any], custom_workflow: bool, bundled_variant: str | None = None
+    ) -> str:
         if not custom_workflow:
-            return "flux2-dev-nvfp4"
+            return (
+                "juggernaut-xl-ragnarok"
+                if bundled_variant == "juggernaut_xl_ragnarok"
+                else "flux2-dev-nvfp4"
+            )
         return (
             inputs.get("workflow_model")
             or inputs.get("model")
@@ -376,8 +539,19 @@ class ComfyUIImage(BaseTool):
         workflow: dict[str, Any],
         workflow_profile: dict[str, Any] | None = None,
         applied_profile_values: dict[str, Any] | None = None,
+        bundled_variant: str | None = None,
     ) -> dict[str, Any]:
         if not custom_workflow:
+            if bundled_variant == "juggernaut_xl_ragnarok":
+                return {
+                    "source": "bundled",
+                    "workflow": _JUGGERNAUT_WORKFLOW,
+                    "workflow_hash_sha256": workflow_hash(workflow),
+                    "model_stack": model_stack("juggernaut-xl-ragnarok-txt2img", inputs),
+                    "output_node": output_node,
+                    "workflow_profile": _JUGGERNAUT_PROFILE,
+                    "applied_bindings": dict(applied_profile_values or {}),
+                }
             return {
                 "source": "bundled",
                 "workflow": "flux2-txt2img.json",
@@ -391,10 +565,16 @@ class ComfyUIImage(BaseTool):
             "workflow_path": inputs.get("workflow_path"),
             "model": inputs.get("workflow_model") or inputs.get("model"),
             "workflow_hash_sha256": workflow_hash(workflow),
-            "model_stack": model_stack(None, inputs),
+            "model_stack": (
+                model_stack(None, inputs)
+                if inputs.get("workflow_model_stack")
+                else infer_model_stack(workflow)
+            ),
             "model_stack_source": (
                 "caller_supplied"
                 if inputs.get("workflow_model_stack")
+                else "inferred_from_workflow"
+                if infer_model_stack(workflow)
                 else "unknown_custom_workflow"
             ),
             "output_node": output_node,
@@ -410,3 +590,15 @@ class ComfyUIImage(BaseTool):
                 "applied_bindings": dict(applied_profile_values or {}),
             }
         return provenance
+
+    def _resolve_bundled_variant(self, inputs: dict[str, Any]) -> str:
+        requested = str(inputs.get("workflow_variant", "auto"))
+        if requested != "auto":
+            return requested
+        _, flux_missing = self._client.check_models(_REQUIRED_MODELS)
+        if not flux_missing:
+            return "flux2_dev"
+        _, juggernaut_missing = self._client.check_models(_JUGGERNAUT_MODELS)
+        if not juggernaut_missing:
+            return "juggernaut_xl_ragnarok"
+        return "flux2_dev"

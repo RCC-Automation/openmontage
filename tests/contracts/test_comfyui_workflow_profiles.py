@@ -62,6 +62,8 @@ def test_load_workflow_profile(tmp_path):
         "qwen3-tts-voice-design.json",
         "qwen3-tts-custom-voice.json",
         "qwen3-tts-voice-clone.json",
+        "ace-step-1.5-turbo-aio-t2a.json",
+        "juggernaut-xl-ragnarok-txt2img.json",
     ],
 )
 def test_bundled_example_profiles_have_valid_shape(profile_name):

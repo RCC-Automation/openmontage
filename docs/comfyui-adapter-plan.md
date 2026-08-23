@@ -300,7 +300,7 @@ not promote ComfyUI for an operation whose bundled models are missing.
 
 `tools/audio/comfyui_music.py`. `capability="music_generation"`, `provider="comfyui"`.
 
-**Bundled default:** ACE-Step v1 (3.5B) text-to-audio, via `tools/_comfyui/workflows/ace-step-1-t2a.json`.
+**Bundled default:** ACE-Step 1.5 Turbo AIO text-to-audio, via `tools/_comfyui/workflows/ace-step-1.5-turbo-aio-t2a.json` and its validated workflow profile.
 The node-pack fragmentation that originally blocked this tool (`AceStepModelLoader`
 vs native `TextEncodeAceStepAudio`, etc.) turned out to be moot for ACE-Step v1:
 ComfyUI ships `TextEncodeAceStepAudio`/`EmptyAceStepLatentAudio` as **native core

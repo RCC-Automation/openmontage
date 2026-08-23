@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "name": "ace-step-1.5-turbo-aio-t2a",
+  "output_node": "104",
+  "bindings": {
+    "prompt": {"node": "94", "input": "tags"},
+    "lyrics": {"node": "94", "input": "lyrics"},
+    "duration_seconds": [{"node": "94", "input": "duration"}, {"node": "98", "input": "seconds"}],
+    "seed": [{"node": "94", "input": "seed"}, {"node": "3", "input": "seed"}],
+    "steps": {"node": "3", "input": "steps"},
+    "cfg": {"node": "3", "input": "cfg"},
+    "cfg_scale": {"node": "94", "input": "cfg_scale"},
+    "bpm": {"node": "94", "input": "bpm"},
+    "timesignature": {"node": "94", "input": "timesignature"},
+    "language": {"node": "94", "input": "language"},
+    "keyscale": {"node": "94", "input": "keyscale"},
+    "generate_audio_codes": {"node": "94", "input": "generate_audio_codes"},
+    "temperature": {"node": "94", "input": "temperature"},
+    "top_p": {"node": "94", "input": "top_p"},
+    "top_k": {"node": "94", "input": "top_k"},
+    "min_p": {"node": "94", "input": "min_p"},
+    "filename_prefix": {"node": "104", "input": "filename_prefix"}
+  }
+}

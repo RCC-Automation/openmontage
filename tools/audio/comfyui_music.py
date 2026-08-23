@@ -1,8 +1,7 @@
 """ComfyUI music generation via a local or remote ComfyUI server.
 
-Default workflow: ACE-Step v1 (3.5B) text-to-audio using ComfyUI's native
-``TextEncodeAceStepAudio``/``EmptyAceStepLatentAudio`` nodes (built into
-ComfyUI core, not a third-party pack). Custom workflows are still accepted
+Default workflow: ACE-Step 1.5 Turbo AIO text-to-audio using ComfyUI's native
+``TextEncodeAceStepAudio1.5``/``EmptyAceStep1.5LatentAudio`` nodes. Custom workflows are still accepted
 via ``workflow_json``/``workflow_path`` for other ACE-Step node packs, other
 versions (e.g. ACE-Step 1.5), or entirely different audio models -- the same
 override contract ``comfyui_image``/``comfyui_video`` offer.
@@ -37,16 +36,21 @@ from tools._comfyui.metadata import (
     model_stack,
     workflow_hash,
 )
+from tools._comfyui.profiles import apply_workflow_bindings, load_workflow_profile
 
 _WORKFLOWS = Path(__file__).resolve().parent.parent / "_comfyui" / "workflows"
+_PROFILES = Path(__file__).resolve().parent.parent / "_comfyui" / "profiles"
 
-# Model required by the bundled ACE-Step v1 workflow
-_REQUIRED_MODELS = ["ace_step_v1_3.5b.safetensors"]
+# Model required by the bundled ACE-Step 1.5 Turbo AIO workflow
+_WORKFLOW_KEY = "ace-step-1.5-turbo-aio-t2a"
+_WORKFLOW_NAME = "ace-step-1.5-turbo-aio-t2a.json"
+_PROFILE_NAME = "ace-step-1.5-turbo-aio-t2a.json"
+_REQUIRED_MODELS = ["ace_step_1.5_turbo_aio.safetensors"]
 
 
 class ComfyUIMusic(BaseTool):
     name = "comfyui_music"
-    version = "0.2.0"
+    version = "0.3.0"
     tier = ToolTier.GENERATE
     capability = "music_generation"
     provider = "comfyui"
@@ -60,7 +64,7 @@ class ComfyUIMusic(BaseTool):
     install_instructions = (
         "Start a ComfyUI server and set COMFYUI_SERVER_URL "
         "(default http://localhost:8188).\n"
-        "Requires ace_step_v1_3.5b.safetensors in ComfyUI's checkpoints "
+        "Requires ace_step_1.5_turbo_aio.safetensors in ComfyUI's checkpoints "
         "directory for the bundled workflow.\n"
         "Running a separate ComfyUI instance for music? Set "
         "COMFYUI_MUSIC_SERVER_URL instead -- it takes priority over "
@@ -78,7 +82,7 @@ class ComfyUIMusic(BaseTool):
     }
     best_for = [
         "local GPU music generation without API costs",
-        "instrumentals and songs with lyrics via the bundled ACE-Step v1 workflow",
+        "instrumentals and songs with lyrics via the bundled ACE-Step 1.5 Turbo AIO workflow",
         "full control over sampling or other ACE-Step versions/node packs via custom ComfyUI workflows",
     ]
     not_good_for = [
@@ -109,9 +113,18 @@ class ComfyUIMusic(BaseTool):
                 ),
             },
             "duration_seconds": {"type": "number", "default": 120.0},
-            "steps": {"type": "integer", "default": 50},
-            "cfg": {"type": "number", "default": 5.0},
-            "lyrics_strength": {"type": "number", "default": 0.99},
+            "steps": {"type": "integer", "default": 8},
+            "cfg": {"type": "number", "default": 1.0, "description": "KSampler CFG"},
+            "cfg_scale": {"type": "number", "default": 2.0, "description": "ACE-Step audio-code guidance"},
+            "bpm": {"type": "integer", "default": 120},
+            "timesignature": {"type": "string", "default": "4"},
+            "language": {"type": "string", "default": "en"},
+            "keyscale": {"type": "string", "default": "C major"},
+            "generate_audio_codes": {"type": "boolean", "default": True},
+            "temperature": {"type": "number", "default": 0.85},
+            "top_p": {"type": "number", "default": 0.9},
+            "top_k": {"type": "integer", "default": 0},
+            "min_p": {"type": "number", "default": 0.0},
             "seed": {"type": "integer", "description": "Random if omitted"},
             "output_path": {"type": "string", "description": "Where to save the audio"},
             "workflow_json": {
@@ -182,7 +195,8 @@ class ComfyUIMusic(BaseTool):
     def get_info(self) -> dict[str, Any]:
         info = super().get_info()
         info["setup_offer"] = self.setup_offer
-        info["bundled_model_stack"] = BUNDLED_MODEL_STACKS["ace-step-1-t2a"]
+        info["bundled_model_stack"] = BUNDLED_MODEL_STACKS[_WORKFLOW_KEY]
+        info["bundled_workflow_profile"] = _PROFILE_NAME
         return info
 
     def _log_progress(self, data: dict) -> None:
@@ -216,8 +230,8 @@ class ComfyUIMusic(BaseTool):
                     success=False,
                     data=missing_models_payload(
                         missing,
-                        workflow_key="ace-step-1-t2a",
-                        workflow_name="ace-step-1-t2a.json",
+                        workflow_key=_WORKFLOW_KEY,
+                        workflow_name=_WORKFLOW_NAME,
                     ),
                     error=(
                         f"ComfyUI server is running but missing required models: "
@@ -237,22 +251,28 @@ class ComfyUIMusic(BaseTool):
                 workflow = self._load_custom_workflow(inputs)
                 output_node = str(inputs["output_node"])
             else:
-                workflow = ComfyUIClient.load_workflow(_WORKFLOWS / "ace-step-1-t2a.json")
-                workflow = ComfyUIClient.patch_workflow(workflow, {
-                    "2": {
-                        "tags": inputs["prompt"],
-                        "lyrics": inputs.get("lyrics", ""),
-                        "lyrics_strength": inputs.get("lyrics_strength", 0.99),
-                    },
-                    "4": {"seconds": inputs.get("duration_seconds", 120.0)},
-                    "8": {
-                        "seed": seed,
-                        "steps": inputs.get("steps", 50),
-                        "cfg": inputs.get("cfg", 5.0),
-                    },
-                    "10": {"filename_prefix": output_path.stem},
+                workflow = ComfyUIClient.load_workflow(_WORKFLOWS / _WORKFLOW_NAME)
+                profile = load_workflow_profile(_PROFILES / _PROFILE_NAME)
+                workflow = apply_workflow_bindings(workflow, profile, {
+                    "prompt": inputs["prompt"],
+                    "lyrics": inputs.get("lyrics", ""),
+                    "duration_seconds": inputs.get("duration_seconds", 120.0),
+                    "seed": seed,
+                    "steps": inputs.get("steps", 8),
+                    "cfg": inputs.get("cfg", 1.0),
+                    "cfg_scale": inputs.get("cfg_scale", 2.0),
+                    "bpm": inputs.get("bpm", 120),
+                    "timesignature": inputs.get("timesignature", "4"),
+                    "language": inputs.get("language", "en"),
+                    "keyscale": inputs.get("keyscale", "C major"),
+                    "generate_audio_codes": inputs.get("generate_audio_codes", True),
+                    "temperature": inputs.get("temperature", 0.85),
+                    "top_p": inputs.get("top_p", 0.9),
+                    "top_k": inputs.get("top_k", 0),
+                    "min_p": inputs.get("min_p", 0.0),
+                    "filename_prefix": inputs.get("filename_prefix", f"audio/{output_path.stem}"),
                 })
-                output_node = "10"
+                output_node = profile["output_node"]
 
             provenance = self._workflow_provenance(inputs, custom_workflow, output_node, workflow)
             paths = self._client.generate(
@@ -311,7 +331,7 @@ class ComfyUIMusic(BaseTool):
     @staticmethod
     def _model_name(inputs: dict[str, Any], custom_workflow: bool) -> str:
         if not custom_workflow:
-            return "ace-step-v1-3.5b"
+            return "ace-step-1.5-turbo-aio"
         return (
             inputs.get("workflow_model")
             or inputs.get("model")
@@ -329,10 +349,11 @@ class ComfyUIMusic(BaseTool):
         if not custom_workflow:
             return {
                 "source": "bundled",
-                "workflow": "ace-step-1-t2a.json",
+                "workflow": _WORKFLOW_NAME,
                 "workflow_hash_sha256": workflow_hash(workflow),
-                "model_stack": model_stack("ace-step-1-t2a", inputs),
+                "model_stack": model_stack(_WORKFLOW_KEY, inputs),
                 "output_node": output_node,
+                "workflow_profile": _PROFILE_NAME,
             }
         stack = inputs.get("workflow_model_stack")
         return {

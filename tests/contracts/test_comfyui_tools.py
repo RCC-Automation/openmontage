@@ -1378,6 +1378,58 @@ class TestCustomWorkflowContract:
         assert any(item["role"] == "vae" for item in provenance["model_stack"])
 
 
+class TestJuggernautBundledImageWorkflow:
+
+    def test_juggernaut_variant_applies_profile_and_provenance(self, tmp_path):
+        tool = ComfyUIImage()
+        tool._client.is_available = lambda: True
+        tool._client.check_models = lambda required: (list(required), [])
+        seen = {}
+
+        def fake_generate(workflow, output_node, dest, **kwargs):
+            seen["workflow"] = workflow
+            seen["output_node"] = output_node
+            return [Path(dest)]
+
+        tool._client.generate = fake_generate
+        result = tool.execute({
+            "prompt": "cinematic observatory portrait",
+            "negative_prompt": "watermark",
+            "workflow_variant": "juggernaut_xl_ragnarok",
+            "width": 832,
+            "height": 1216,
+            "steps": 35,
+            "guidance": 4.5,
+            "seed": 99,
+            "output_path": str(tmp_path / "juggernaut.png"),
+        })
+
+        assert result.success, result.error
+        assert seen["output_node"] == "7"
+        assert seen["workflow"]["2"]["inputs"]["text"] == "cinematic observatory portrait"
+        assert seen["workflow"]["3"]["inputs"]["text"] == "watermark"
+        assert seen["workflow"]["4"]["inputs"]["width"] == 832
+        assert seen["workflow"]["4"]["inputs"]["height"] == 1216
+        assert seen["workflow"]["5"]["inputs"]["seed"] == 99
+        assert seen["workflow"]["5"]["inputs"]["steps"] == 35
+        assert seen["workflow"]["5"]["inputs"]["cfg"] == 4.5
+        assert result.data["model"] == "juggernaut-xl-ragnarok"
+        assert result.data["workflow_provenance"]["workflow_profile"] == (
+            "juggernaut-xl-ragnarok-txt2img.json"
+        )
+
+    def test_auto_selects_installed_juggernaut_when_flux_is_missing(self):
+        tool = ComfyUIImage()
+
+        def check_models(required):
+            if "juggernautXL_ragnarok.safetensors" in required:
+                return (list(required), [])
+            return ([], list(required))
+
+        tool._client.check_models = check_models
+        assert tool._resolve_bundled_variant({}) == "juggernaut_xl_ragnarok"
+
+
 class TestComfyUIMusic:
 
     def test_capability_and_provider(self):
@@ -1421,7 +1473,7 @@ class TestComfyUIMusic:
         result = tool.execute({"prompt": "ambient pad"})
 
         assert result.success is False
-        assert result.data["missing_models"][0]["name"] == "ace_step_v1_3.5b.safetensors"
+        assert result.data["missing_models"][0]["name"] == "ace_step_1.5_turbo_aio.safetensors"
         assert result.data["missing_models"][0]["download_url"]
 
     def test_bundled_generation_patches_tags_lyrics_and_seed(self, tmp_path):
@@ -1446,12 +1498,14 @@ class TestComfyUIMusic:
         })
 
         assert result.success is True
-        assert seen["output_node"] == "10"
-        assert seen["workflow"]["2"]["inputs"]["tags"] == "lofi hip hop, chill, rain sounds"
-        assert seen["workflow"]["2"]["inputs"]["lyrics"] == "[verse]\nquiet streets"
-        assert seen["workflow"]["4"]["inputs"]["seconds"] == 45
-        assert seen["workflow"]["8"]["inputs"]["seed"] == 777
-        assert result.data["model"] == "ace-step-v1-3.5b"
+        assert seen["output_node"] == "104"
+        assert seen["workflow"]["94"]["inputs"]["tags"] == "lofi hip hop, chill, rain sounds"
+        assert seen["workflow"]["94"]["inputs"]["lyrics"] == "[verse]\nquiet streets"
+        assert seen["workflow"]["94"]["inputs"]["duration"] == 45
+        assert seen["workflow"]["98"]["inputs"]["seconds"] == 45
+        assert seen["workflow"]["94"]["inputs"]["seed"] == 777
+        assert seen["workflow"]["3"]["inputs"]["seed"] == 777
+        assert result.data["model"] == "ace-step-1.5-turbo-aio"
 
     def test_bundled_generation_preserves_seed_zero(self, tmp_path):
         tool = ComfyUIMusic()
@@ -1460,7 +1514,7 @@ class TestComfyUIMusic:
         seen = {}
 
         def fake_generate(workflow, output_node, dest, **kwargs):
-            seen["seed"] = workflow["8"]["inputs"]["seed"]
+            seen["seed"] = workflow["3"]["inputs"]["seed"]
             return [Path(dest)]
 
         tool._client.generate = fake_generate

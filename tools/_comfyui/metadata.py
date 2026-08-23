@@ -88,6 +88,15 @@ BUNDLED_MODEL_STACKS: dict[str, list[dict[str, Any]]] = {
             ),
         },
     ],
+    "juggernaut-xl-ragnarok-txt2img": [
+        {
+            "role": "checkpoint",
+            "name": "juggernautXL_ragnarok.safetensors",
+            "architecture": "SDXL 1.0",
+            "destination_hint": "ComfyUI/models/checkpoints/",
+            "download_url": "https://civitai.com/models/133005/juggernaut-xl",
+        },
+    ],
     "wan22-t2v-4step": [
         {
             "role": "text_encoder",
@@ -223,6 +232,17 @@ BUNDLED_MODEL_STACKS: dict[str, list[dict[str, Any]]] = {
             ),
         },
     ],
+    "ace-step-1.5-turbo-aio-t2a": [
+        {
+            "role": "checkpoint",
+            "name": "ace_step_1.5_turbo_aio.safetensors",
+            "destination_hint": "ComfyUI/models/checkpoints/",
+            "download_url": (
+                "https://huggingface.co/Comfy-Org/ace_step_1.5_ComfyUI_files/"
+                "resolve/main/all_in_one/ace_step_1.5_turbo_aio.safetensors"
+            ),
+        },
+    ],
 }
 
 
@@ -240,6 +260,64 @@ def model_stack(
         return [dict(item) for item in BUNDLED_MODEL_STACKS[workflow_key]]
     stack = inputs.get("workflow_model_stack")
     return stack if isinstance(stack, list) else []
+
+
+def infer_model_stack(workflow: dict[str, Any]) -> list[dict[str, Any]]:
+    """Infer loader assets from a graph, for custom-workflow provenance.
+
+    Walks every node's inputs for the well-known loader field names and records
+    what was actually loaded. Used when the caller supplies no explicit
+    workflow_model_stack, which is the normal case for a graph built by VRGDG.
+    """
+
+    roles = {
+        "unet_name": "diffusion_model",
+        "ckpt_name": "checkpoint",
+        "clip_name": "text_encoder",
+        "clip_name1": "text_encoder",
+        "clip_name2": "text_encoder",
+        "vae_name": "vae",
+        "lora_name": "lora",
+        "model_name": "upscale_model",
+    }
+    lora_slots = {f"lora_{index}": "lora" for index in range(1, 9)}
+    roles.update(lora_slots)
+
+    stack: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for node_id, node in workflow.items():
+        node_inputs = node.get("inputs", {}) if isinstance(node, dict) else {}
+        if not isinstance(node_inputs, dict):
+            continue
+        for input_name, role in roles.items():
+            asset_name = node_inputs.get(input_name)
+            if not isinstance(asset_name, str) or not asset_name:
+                continue
+            # VRGDG uses these sentinels for an unfilled optional LoRA slot.
+            if asset_name.strip().lower() in {"[none]", "none", "null"}:
+                continue
+            key = (role, asset_name)
+            if key in seen:
+                continue
+            seen.add(key)
+            item: dict[str, Any] = {
+                "role": role,
+                "name": asset_name,
+                "node": str(node_id),
+            }
+            if role == "lora":
+                suffix = input_name.split("_")[-1]
+                for strength in (
+                    "strength_model",
+                    "strength_clip",
+                    f"strength_{suffix}",
+                    f"first_pass_strength_{suffix}",
+                    f"second_pass_strength_{suffix}",
+                ):
+                    if strength in node_inputs:
+                        item[strength] = node_inputs[strength]
+            stack.append(item)
+    return stack
 
 
 def missing_models_payload(

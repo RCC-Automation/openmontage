@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "name": "juggernaut-xl-ragnarok-txt2img",
+  "output_node": "7",
+  "bindings": {
+    "prompt": {"node": "2", "input": "text"},
+    "negative_prompt": {"node": "3", "input": "text"},
+    "width": {"node": "4", "input": "width"},
+    "height": {"node": "4", "input": "height"},
+    "seed": {"node": "5", "input": "seed"},
+    "steps": {"node": "5", "input": "steps"},
+    "guidance": {"node": "5", "input": "cfg"},
+    "filename_prefix": {"node": "7", "input": "filename_prefix"}
+  }
+}

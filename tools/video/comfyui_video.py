@@ -33,9 +33,11 @@ from tools._comfyui.metadata import (
     BUNDLED_MODEL_STACKS,
     COMFYUI_SETUP_OFFER,
     missing_models_payload,
+    infer_model_stack,
     model_stack,
     workflow_hash,
 )
+from tools._comfyui.vrgdg import VRGDGClient, VRGDGError, build_routes_for
 from tools._comfyui.profiles import (
     WorkflowProfileError,
     apply_workflow_bindings,
@@ -138,6 +140,7 @@ class ComfyUIVideo(BaseTool):
         "custom_workflow": True,
         "custom_output_node": True,
         "custom_workflow_profile": True,
+        "vrgdg_builder": True,
         "offline": True,
         "gemini_omni_flash_partner_node": True,
         "seedance_2_5_partner_node": True,
@@ -307,6 +310,28 @@ class ComfyUIVideo(BaseTool):
                     "workflow_json or workflow_path."
                 ),
             },
+            "vrgdg_build": {
+                "type": "object",
+                "description": (
+                    "Build the graph with the VRGDG node pack instead of a stored "
+                    "workflow. {\"kind\": \"i2v\", \"payload\": {...}}. VRGDG patches "
+                    "its own LTX/MiniMax templates by node class_type, so no binding "
+                    "profile is needed. NOTE: the video kinds are project-bound - they "
+                    "read a VRGDG project folder (audio_path, srt_path, image_folder) "
+                    "and write into it. Mutually exclusive with workflow_json/path."
+                ),
+                "properties": {
+                    "kind": {
+                        "type": "string",
+                        "description": "VRGDG video build route: i2v, t2v, flf, rtv, ingredients, id_lora, minimax_h3.",
+                    },
+                    "payload": {
+                        "type": "object",
+                        "description": "Route payload including project_folder and the scene index.",
+                    },
+                },
+                "required": ["kind"],
+            },
             "output_node": {
                 "type": "string",
                 "description": (
@@ -425,6 +450,14 @@ class ComfyUIVideo(BaseTool):
 
     def get_info(self) -> dict[str, Any]:
         info = super().get_info()
+        info["vrgdg_build_kinds"] = {
+            route.kind: {
+                "description": route.description,
+                "project_bound": route.project_bound,
+                "required": list(route.required),
+            }
+            for route in build_routes_for("video")
+        }
         info["operation_statuses"] = self.operation_statuses()
         info["resource_profiles"] = _RESOURCE_PROFILES
         info["setup_offer"] = self.setup_offer
@@ -487,9 +520,28 @@ class ComfyUIVideo(BaseTool):
         return 240.0  # ~4 min
 
     def execute(self, inputs: dict[str, Any]) -> ToolResult:
+        vrgdg_build = inputs.get("vrgdg_build") or None
         custom_workflow = bool(
             inputs.get("workflow_json") or inputs.get("workflow_path")
         )
+        vrgdg_graph = None
+        vrgdg_pack_version = None
+        if vrgdg_build is not None:
+            if custom_workflow or inputs.get("workflow_profile_json") or inputs.get(
+                "workflow_profile_path"
+            ):
+                return ToolResult(
+                    success=False,
+                    error=(
+                        "vrgdg_build supplies the graph itself, so it cannot be combined "
+                        "with workflow_json/workflow_path or a workflow profile."
+                    ),
+                )
+            if not isinstance(vrgdg_build, dict) or not vrgdg_build.get("kind"):
+                return ToolResult(
+                    success=False,
+                    error='vrgdg_build requires a "kind", e.g. {"kind": "i2v", "payload": {...}}',
+                )
         try:
             workflow_profile = self._load_workflow_profile(inputs)
         except WorkflowProfileError as exc:
@@ -509,7 +561,7 @@ class ComfyUIVideo(BaseTool):
             "seedance_2.5": "ByteDance2TextToVideoNode",
             "minimax_h3_api": "MinimaxHailuo03TextToVideoNode",
         }
-        if model_family == "minimax_h3_local" and not custom_workflow:
+        if model_family == "minimax_h3_local" and not custom_workflow and vrgdg_build is None:
             return ToolResult(
                 success=False,
                 data={
@@ -590,7 +642,50 @@ class ComfyUIVideo(BaseTool):
         applied_profile_values: dict[str, Any] = {}
 
         try:
-            if custom_workflow:
+            if vrgdg_build is not None:
+                vrgdg_client = VRGDGClient()
+                if not vrgdg_client.is_available():
+                    return ToolResult(
+                        success=False, error=vrgdg_client.unavailable_reason()
+                    )
+                payload = dict(vrgdg_build.get("payload") or {})
+                payload.setdefault("seed", seed)
+                if inputs.get("prompt"):
+                    payload.setdefault("i2v_prompt", inputs["prompt"])
+                    payload.setdefault("t2v_prompt", inputs["prompt"])
+                vrgdg_graph = vrgdg_client.build(str(vrgdg_build["kind"]), payload)
+                vrgdg_pack_version = vrgdg_client.pack_version()
+                output_node = str(
+                    inputs.get("output_node") or vrgdg_graph.output_node(prefer="video")
+                )
+                # VRGDG templates hang deliberate side-effect nodes (RAM/VRAM
+                # cleanup, preview branches) off the graph. Those are the
+                # author's intent, so submit the graph as built and only prune
+                # when an uninstalled node would otherwise fail validation - and
+                # then only the parts the output does not depend on.
+                missing_nodes = vrgdg_client.missing_node_types(vrgdg_graph.prompt)
+                if missing_nodes:
+                    vrgdg_graph.prune(output_node)
+                    missing_nodes = vrgdg_client.missing_node_types(vrgdg_graph.prompt)
+                if missing_nodes:
+                    return ToolResult(
+                        success=False,
+                        data={"missing_node_types": missing_nodes},
+                        error=(
+                            "The VRGDG graph needs custom nodes this ComfyUI server "
+                            "does not have, on branches the output depends on: "
+                            + "; ".join(
+                                f"{cls} (node {', '.join(ids)})"
+                                for cls, ids in sorted(missing_nodes.items())
+                            )
+                            + ". Install the packs that provide them through ComfyUI "
+                            "Manager and restart ComfyUI."
+                        ),
+                    )
+                workflow = vrgdg_graph.prompt
+                if vrgdg_graph.used_seed is not None:
+                    seed = vrgdg_graph.used_seed
+            elif custom_workflow:
                 workflow = self._load_custom_workflow(inputs)
                 if workflow_profile:
                     profile_values = self._workflow_profile_values(
@@ -632,7 +727,7 @@ class ComfyUIVideo(BaseTool):
 
             provenance = self._workflow_provenance(
                 inputs,
-                custom_workflow,
+                custom_workflow or vrgdg_graph is not None,
                 output_node,
                 operation,
                 workflow,
@@ -640,16 +735,43 @@ class ComfyUIVideo(BaseTool):
                 workflow_profile,
                 applied_profile_values,
             )
-            paths = self._client.generate(
-                workflow,
-                output_node=output_node,
-                dest=output_path,
-                timeout=inputs.get("timeout_seconds", 3600),
-                interval=10,
-                resume_prompt_id=inputs.get("resume_prompt_id"),
-                on_progress=self._log_progress,
-            )
+            if vrgdg_graph is not None:
+                provenance.update(
+                    vrgdg_graph.provenance(pack_version=vrgdg_pack_version)
+                )
+            try:
+                paths = self._client.generate(
+                    workflow,
+                    output_node=output_node,
+                    dest=output_path,
+                    timeout=inputs.get("timeout_seconds", 3600),
+                    interval=10,
+                    resume_prompt_id=inputs.get("resume_prompt_id"),
+                    on_progress=self._log_progress,
+                )
+            except ComfyUIError as exc:
+                # A project-bound VRGDG graph saves through its own writer into
+                # the project folder, which ComfyUI does not always surface on
+                # /view. A timeout (prompt_id set) is a different problem and
+                # must still propagate.
+                if (
+                    vrgdg_graph is None
+                    or exc.prompt_id
+                    or not vrgdg_graph.output_folder
+                ):
+                    raise
+                collected = self._collect_vrgdg_output(
+                    vrgdg_graph.output_folder, output_path
+                )
+                if collected is None:
+                    raise ComfyUIError(
+                        f"{exc}\n\nThe VRGDG graph also left nothing in its output "
+                        f"folder {vrgdg_graph.output_folder}."
+                    ) from exc
+                paths = [collected]
 
+        except VRGDGError as exc:
+            return ToolResult(success=False, error=f"VRGDG graph build failed: {exc}")
         except ComfyUIError as exc:
             data = {"prompt_id": exc.prompt_id} if exc.prompt_id else {}
             if exc.prompt_id:
@@ -668,7 +790,9 @@ class ComfyUIVideo(BaseTool):
                 success=False, error=f"ComfyUI video generation failed: {exc}"
             )
 
-        model_name = self._model_name(inputs, custom_workflow)
+        model_name = self._model_name(inputs, custom_workflow or vrgdg_graph is not None)
+        if vrgdg_graph is not None and model_name == "custom-comfyui-workflow":
+            model_name = f"vrgdg-{vrgdg_graph.kind}"
         partner_execution = model_family in partner_nodes and not custom_workflow
         result_data: dict[str, Any] = {
             "provider": "comfyui",
@@ -841,6 +965,32 @@ class ComfyUIVideo(BaseTool):
         suffix = local_path.suffix or remote_suffix or ".bin"
         upload_name = f"om_{output_path.stem}_{binding_name}{suffix}"
         return self._client.upload_input(local_path, upload_name)
+
+    @staticmethod
+    def _collect_vrgdg_output(output_folder: str, dest: Path) -> Path | None:
+        """Copy the newest video out of a VRGDG project render folder.
+
+        The project-bound build routes write through VRGDG's own saver nodes
+        into ``<project>/<render folder>``, which ComfyUI does not always expose
+        through ``/view``. OpenMontage runs on the same host as ComfyUI, so the
+        file is still reachable directly. Returns None when nothing is there.
+        """
+        import shutil
+
+        folder = Path(output_folder)
+        if not folder.is_dir():
+            return None
+        candidates = [
+            item
+            for item in folder.iterdir()
+            if item.is_file() and item.suffix.lower() in {".mp4", ".mkv", ".webm", ".mov", ".gif"}
+        ]
+        if not candidates:
+            return None
+        newest = max(candidates, key=lambda item: item.stat().st_mtime)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(newest, dest)
+        return dest
 
     @staticmethod
     def _load_custom_workflow(inputs: dict[str, Any]) -> dict:
@@ -1030,42 +1180,8 @@ class ComfyUIVideo(BaseTool):
 
     @staticmethod
     def _infer_model_stack(workflow: dict[str, Any]) -> list[dict[str, Any]]:
-        """Infer common ComfyUI loader assets for custom-workflow provenance."""
-
-        roles = {
-            "unet_name": "diffusion_model",
-            "ckpt_name": "checkpoint",
-            "clip_name": "text_encoder",
-            "clip_name1": "text_encoder",
-            "clip_name2": "text_encoder",
-            "vae_name": "vae",
-            "lora_name": "lora",
-        }
-        stack: list[dict[str, Any]] = []
-        seen: set[tuple[str, str]] = set()
-        for node_id, node in workflow.items():
-            node_inputs = node.get("inputs", {}) if isinstance(node, dict) else {}
-            if not isinstance(node_inputs, dict):
-                continue
-            for input_name, role in roles.items():
-                asset_name = node_inputs.get(input_name)
-                if not isinstance(asset_name, str) or not asset_name:
-                    continue
-                key = (role, asset_name)
-                if key in seen:
-                    continue
-                seen.add(key)
-                item: dict[str, Any] = {
-                    "role": role,
-                    "name": asset_name,
-                    "node": str(node_id),
-                }
-                if role == "lora":
-                    for strength in ("strength_model", "strength_clip"):
-                        if strength in node_inputs:
-                            item[strength] = node_inputs[strength]
-                stack.append(item)
-        return stack
+        """Delegates to the shared helper; kept as a method for compatibility."""
+        return infer_model_stack(workflow)
 
     @staticmethod
     def _build_partner_t2v(
