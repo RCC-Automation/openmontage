@@ -7,3 +7,33 @@ It contains routing rules that determine your first action based on what the use
 Skipping it WILL cause you to take the wrong action.
 
 There are no instructions in this file. All instructions are in AGENT_GUIDE.md.
+
+---
+
+## This fork: RCC-Automation/openmontage
+
+Upstream is `calesthio/OpenMontage`. This fork adds a **VRGDG integration**: it
+drives a local ComfyUI running the `comfyui-vrgamedevgirl` (VRGDG) node pack, and
+bridges OpenMontage's `scene_plan` to VRGDG's Music Video Builder timeline in both
+directions.
+
+Read these before working on that integration:
+
+| Doc | For |
+|---|---|
+| [`HANDOFF.md`](HANDOFF.md) | **Start here if you are picking this up cold.** Environment, paths, how to run things, the traps. |
+| [`PROGRESS.md`](PROGRESS.md) | What is built, what is in flight, what is next. |
+| [`DECISIONS.md`](DECISIONS.md) | Why the integration is shaped the way it is. Read before changing it. |
+| [`IDEAS.md`](IDEAS.md) | Proposed but undecided directions — the screen-test lab and the dailies loop. Not scheduled; read before proposing new architecture. |
+| [`.agents/skills/comfyui/SKILL.md`](.agents/skills/comfyui/SKILL.md) | The three graph sources, including `vrgdg_build`. Mandatory before calling any `comfyui_*` tool. |
+| [`.agents/skills/clock-in/SKILL.md`](.agents/skills/clock-in/SKILL.md) and [`clock-out`](.agents/skills/clock-out/SKILL.md) | **Run clock-in before your first action in a session, and clock-out before it ends.** They are what keeps the docs above true. |
+
+Three constraints that will waste your time if you do not know them:
+
+1. **The host is AMD/ROCm, not CUDA.** Triton, SageAttention, xformers and
+   bitsandbytes are unavailable. Prefer fp8/GGUF/int8 weights.
+2. **Models live outside the ComfyUI install**, in ComfyUI Desktop's shared tree.
+   See `HANDOFF.md` for the paths.
+3. **Never run `git` through a Cowork device-bridge shell.** It cannot delete
+   files, so every invocation leaves `.git/index.lock` behind and blocks the next
+   command. Run git in a real terminal on the host.

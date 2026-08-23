@@ -1,0 +1,446 @@
+"""Run a screen test: cast a look by measured comparison.
+
+Generates one character brief across a matrix of models, LoRAs and settings, in
+the conditions the film will use, then ranks the stacks and hands a shortlist to
+the human. It never picks the winner - see `lib/screen_test` for why that line
+is drawn there.
+
+Budget-aware by construction. A sweep is the one thing on a local machine that
+can quietly consume a whole evening, so the plan is costed against measured
+history before a single image is generated, and the run stops when the budget is
+gone rather than when the matrix ends.
+"""
+
+from __future__ import annotations
+
+import time
+from pathlib import Path
+from typing import Any
+
+from tools.base_tool import (
+    BaseTool,
+    Determinism,
+    ExecutionMode,
+    ResourceProfile,
+    RetryPolicy,
+    ToolResult,
+    ToolRuntime,
+    ToolStability,
+    ToolStatus,
+    ToolTier,
+)
+from tools._comfyui.vrgdg import VRGDGClient
+from lib.render_clock import (
+    PlanItem,
+    RenderBudget,
+    RenderTimings,
+    check_budget,
+    estimate_plan,
+    route_key,
+)
+from lib.screen_test import (
+    PRESETS,
+    CandidateResult,
+    ScreenTestError,
+    Shot,
+    apply_preset,
+    build_prompt,
+    comparison_sheet,
+    condition_id,
+    contact_sheet,
+    expand_matrix,
+    resolve_conditions,
+    score_candidates,
+    shortlist,
+    slugify,
+    write_report,
+)
+
+
+class ScreenTest(BaseTool):
+    name = "screen_test"
+    version = "0.1.0"
+    tier = ToolTier.GENERATE
+    capability = "casting"
+    provider = "vrgdg"
+    stability = ToolStability.EXPERIMENTAL
+    execution_mode = ExecutionMode.SYNC
+    determinism = Determinism.SEEDED
+    runtime = ToolRuntime.LOCAL_GPU
+
+    dependencies = []
+    install_instructions = (
+        "Needs ComfyUI running with the comfyui-vrgamedevgirl pack. Identity "
+        "stability and prompt adherence additionally need torch and transformers "
+        "for CLIP; without them the run still works and scores on the remaining axes."
+    )
+    agent_skills = ["comfyui"]
+
+    capabilities = ["screen_test", "model_comparison", "casting"]
+    supports = {
+        "quick_model_comparison": True,
+        "identity_stability": True,
+        "budget_aware": True,
+        "contact_sheet": True,
+        "picks_a_winner": False,
+    }
+    best_for = [
+        "choosing which local model and LoRA stack to cast a character with",
+        "measuring whether a stack holds one identity across seeds",
+        "comparing installed models on the same brief under the same conditions",
+    ]
+    not_good_for = [
+        "judging whether a face is right for the part - that is the human's job",
+        "video models, where each sample costs 25x an image",
+    ]
+
+    input_schema = {
+        "type": "object",
+        "required": ["project_dir", "character", "brief", "matrix"],
+        "properties": {
+            "project_dir": {
+                "type": "string",
+                "description": "OpenMontage project directory, i.e. projects/<project-id>.",
+            },
+            "character": {"type": "string", "description": "Name of the character being cast."},
+            "brief": {
+                "type": "string",
+                "description": (
+                    "What the character looks like. Held identical across every "
+                    "candidate - only the stack varies."
+                ),
+            },
+            "matrix": {
+                "type": "object",
+                "description": (
+                    "What to vary. {models: [...], lora_sets: [[...], ...], settings: {...}}. "
+                    "lora_sets is a list of LoRA *combinations*, so [[], [[\"a\", 0.6]]] "
+                    "tests no-LoRA against a-at-0.6."
+                ),
+                "properties": {
+                    "models": {"type": "array", "items": {"type": "string"}},
+                    "lora_sets": {"type": "array"},
+                    "settings": {"type": "object"},
+                    "conditions": {"type": "array"},
+                },
+                "required": ["models"],
+            },
+            "preset": {
+                "type": "string",
+                "enum": ["quick", "shortlist", "full"],
+                "default": "shortlist",
+                "description": (
+                    "Three rungs of one ladder. quick: one close-up per model on a "
+                    "single shared seed - a direct look comparison in minutes, but it "
+                    "cannot measure identity stability. shortlist: one condition, 3 "
+                    "seeds - adds stability, narrows the field. full: 3 conditions x 3 "
+                    "seeds - the real screen test. Explicit seeds or conditions "
+                    "override the preset."
+                ),
+            },
+            "seeds": {
+                "type": "array",
+                "items": {"type": "integer"},
+                "description": (
+                    "Overrides the preset's seeds. A single seed cannot measure "
+                    "identity stability, which only the quick preset accepts."
+                ),
+            },
+            "budget_minutes": {
+                "type": "number",
+                "description": (
+                    "GPU-minutes this sweep may use. The plan is costed first and "
+                    "refused if it does not fit; the run also stops when the budget "
+                    "is spent."
+                ),
+            },
+            "clip_name": {"type": "string", "description": "Text encoder for every candidate."},
+            "vae_name": {"type": "string", "description": "VAE for every candidate."},
+            "kind": {
+                "type": "string",
+                "default": "zimage",
+                "description": "VRGDG image build route used for every candidate.",
+            },
+            "dry_run": {
+                "type": "boolean",
+                "default": False,
+                "description": "Cost the plan and return it without generating anything.",
+            },
+            "shortlist_size": {"type": "integer", "default": 8},
+        },
+    }
+
+    resource_profile = ResourceProfile(
+        cpu_cores=2, ram_mb=8000, vram_mb=8000, disk_mb=4000, network_required=False
+    )
+    retry_policy = RetryPolicy(max_retries=0, retryable_errors=[])
+    idempotency_key_fields = ["project_dir", "character", "brief"]
+    side_effects = [
+        "generates images into <project_dir>/casting/<character>/",
+        "writes casting_report.json and contact_sheet.png",
+        "records render durations to the machine timing history",
+    ]
+    user_visible_verification = [
+        "Open the contact sheet and choose the cast yourself - the ranking only eliminates",
+        "Check the identity_stability column before the prettiness of any single frame",
+    ]
+
+    def __init__(self) -> None:
+        self._client = VRGDGClient()
+
+    def get_status(self) -> ToolStatus:
+        return ToolStatus.AVAILABLE if self._client.is_available() else ToolStatus.UNAVAILABLE
+
+    def get_info(self) -> dict[str, Any]:
+        info = super().get_info()
+        info["decides"] = "nothing - ranks and eliminates, the human casts"
+        info["primary_metric"] = "identity_stability across seeds"
+        return info
+
+    def estimate_cost(self, inputs: dict[str, Any]) -> float:
+        return 0.0
+
+    def estimate_runtime(self, inputs: dict[str, Any]) -> float:
+        try:
+            plan = self._plan(inputs)[0]
+        except Exception:
+            return 0.0
+        return estimate_plan(RenderTimings.load(), plan).total_minutes * 60.0
+
+    # ------------------------------------------------------------------
+
+    def _plan(self, inputs: dict[str, Any]):
+        candidates = expand_matrix(inputs["matrix"])
+        conditions, seeds, settings, preset = apply_preset(
+            str(inputs.get("preset", "shortlist")),
+            inputs["matrix"],
+            inputs.get("seeds"),
+        )
+        pixels = int(settings.get("second_pass_width", 1920)) * int(
+            settings.get("second_pass_height", 1080)
+        )
+        key = route_key("comfyui_image", "vrgdg", str(inputs.get("kind", "zimage")))
+        plan = [
+            PlanItem(
+                label=c.label,
+                route_key=key,
+                count=len(conditions) * len(seeds),
+                pixels=pixels,
+            )
+            for c in candidates
+        ]
+        return plan, candidates, conditions, seeds, settings, preset
+
+    def execute(self, inputs: dict[str, Any]) -> ToolResult:
+        started = time.time()
+        project_dir = Path(inputs["project_dir"])
+        if not project_dir.is_dir():
+            return ToolResult(
+                success=False,
+                error=(
+                    f"OpenMontage project directory does not exist: {project_dir}. "
+                    f"Create it with lib.checkpoint.init_project first."
+                ),
+            )
+
+        try:
+            plan, candidates, conditions, seeds, settings, preset = self._plan(inputs)
+        except ScreenTestError as exc:
+            return ToolResult(success=False, error=str(exc))
+
+        skip = list(preset.get("cannot_measure") or [])
+        # Only the quick preset is allowed to run on a single seed, and it says
+        # in its own output what that costs.
+        if len(seeds) < 3 and "identity_stability" not in skip:
+            return ToolResult(
+                success=False,
+                error=(
+                    f"{len(seeds)} seed(s) cannot measure identity stability, which is "
+                    f"the point of this preset. Use at least 3 seeds, or preset='quick' "
+                    f"for a look comparison that does not claim to measure it."
+                ),
+            )
+
+        timings = RenderTimings.load()
+        cost = estimate_plan(timings, plan)
+        budget_minutes = inputs.get("budget_minutes")
+        verdict = check_budget(cost, float(budget_minutes)) if budget_minutes else None
+
+        plan_summary = {
+            "preset": str(inputs.get("preset", "shortlist")),
+            "question": preset.get("question"),
+            "candidates": len(candidates),
+            "conditions": len(conditions),
+            "seeds": len(seeds),
+            "renders": cost.renders,
+            "estimated_minutes": round(cost.total_minutes, 1),
+            "estimate_warnings": (verdict.warnings if verdict else []),
+            "heaviest": [
+                {"label": l.item.label, "minutes": round(l.total_minutes, 1)}
+                for l in cost.heaviest(3)
+            ],
+            "caveat": preset.get("caveat") or None,
+        }
+
+        if inputs.get("dry_run"):
+            return ToolResult(
+                success=True,
+                data={"plan": plan_summary, "verdict": verdict.describe() if verdict else None},
+                duration_seconds=time.time() - started,
+            )
+
+        if verdict is not None and not verdict.fits:
+            return ToolResult(
+                success=False,
+                data={"plan": plan_summary, "suggestions": verdict.suggestions},
+                error=(
+                    f"This sweep needs about {cost.total_minutes:.0f} GPU-minutes and the "
+                    f"budget is {float(budget_minutes):.0f}. "
+                    + " ".join(verdict.suggestions)
+                ),
+            )
+
+        if not self._client.is_available():
+            return ToolResult(success=False, error=self._client.unavailable_reason())
+
+        from tools.graphics.comfyui_image import ComfyUIImage
+
+        generator = ComfyUIImage()
+        budget = RenderBudget(float(budget_minutes)) if budget_minutes else None
+        out_root = project_dir / "casting" / slugify(inputs["character"])
+        route = route_key("comfyui_image", "vrgdg", str(inputs.get("kind", "zimage")))
+
+        results: list[CandidateResult] = []
+        failures: list[str] = []
+        stopped_early = False
+
+        for candidate in candidates:
+            result = CandidateResult(candidate=candidate)
+            for condition in conditions:
+                prompt = build_prompt(inputs["brief"], condition)
+                for seed in seeds:
+                    if budget is not None and not budget.affords(timings.estimate(route)):
+                        stopped_early = True
+                        break
+                    payload = {
+                        **settings,
+                        "unet_name": candidate.model,
+                        "clip_name": inputs.get("clip_name", ""),
+                        "vae_name": inputs.get("vae_name", ""),
+                        "seed": int(seed),
+                        "seed_mode": "fixed",
+                    }
+                    if candidate.loras:
+                        payload["use_custom_loras"] = True
+                        payload["lora_count"] = len(candidate.loras)
+                        for slot, (name, strength) in enumerate(candidate.loras, start=1):
+                            payload[f"lora_{slot}"] = name
+                            payload[f"strength_{slot}"] = strength
+                            payload[f"first_pass_strength_{slot}"] = strength
+                            payload[f"second_pass_strength_{slot}"] = strength
+
+                    out_path = out_root / candidate.id / f"{condition_id(condition)}_s{seed}.png"
+                    render_started = time.time()
+                    outcome = generator.execute(
+                        {
+                            "prompt": prompt,
+                            "vrgdg_build": {"kind": inputs.get("kind", "zimage"), "payload": payload},
+                            "output_path": str(out_path),
+                        }
+                    )
+                    elapsed = time.time() - render_started
+
+                    if not outcome.success:
+                        failures.append(f"{candidate.label} / {condition_id(condition)} / {seed}: {outcome.error}")
+                        continue
+                    timings.record(route, elapsed, pixels=plan[0].pixels)
+                    if budget is not None:
+                        budget.spend(elapsed)
+                    result.shots.append(
+                        Shot(
+                            candidate_id=candidate.id,
+                            condition=condition_id(condition),
+                            seed=int(seed),
+                            path=out_path,
+                            seconds=elapsed,
+                        )
+                    )
+                if stopped_early:
+                    break
+            if result.shots:
+                results.append(result)
+            if stopped_early:
+                break
+
+        timings.save()
+
+        if not results:
+            return ToolResult(
+                success=False,
+                data={"plan": plan_summary, "failures": failures},
+                error="No candidate produced a single image. See data.failures.",
+            )
+
+        reference_prompt = build_prompt(inputs["brief"], conditions[0])
+        ranked = score_candidates(results, prompt=reference_prompt, skip=skip)
+        picked = shortlist(ranked, int(inputs.get("shortlist_size", 8)))
+
+        # A quick run exists to be looked at, so its artefact is the large
+        # side-by-side rather than a survey grid of thumbnails.
+        if str(inputs.get("preset", "shortlist")) == "quick":
+            sheet = comparison_sheet(
+                picked,
+                out_root / "model_comparison.png",
+                prompt=reference_prompt,
+                seed=seeds[0] if seeds else None,
+            )
+        else:
+            sheet = contact_sheet(picked, out_root / "contact_sheet.png")
+        elapsed_minutes = (time.time() - started) / 60.0
+        report = write_report(
+            out_root / "casting_report.json",
+            character=inputs["character"],
+            brief=inputs["brief"],
+            ranked=ranked,
+            conditions=conditions,
+            seeds=seeds,
+            elapsed_minutes=elapsed_minutes,
+            contact_sheet_path=sheet,
+        )
+
+        artifacts = [str(report)] + ([str(sheet)] if sheet else [])
+        return ToolResult(
+            success=True,
+            data={
+                "plan": plan_summary,
+                "shortlist": [
+                    {
+                        "rank": i + 1,
+                        "label": r.candidate.label,
+                        "total": round(r.total, 4),
+                        "scores": {k: (None if v is None else round(v, 3)) for k, v in r.scores.items()},
+                        "seconds_per_image": round(r.seconds_per_image, 1),
+                        "notes": r.notes,
+                    }
+                    for i, r in enumerate(picked)
+                ],
+                "comparison_sheet": str(sheet) if sheet else None,
+                "caveat": preset.get("caveat") or None,
+                "budget": budget.describe() if budget else None,
+                "stopped_early": stopped_early,
+                "failures": failures,
+                "next_step": (
+                    "Open the comparison sheet and pick the two or three models worth "
+                    "taking further, then run preset='shortlist' on those to see whether "
+                    "they hold one identity across seeds."
+                    if str(inputs.get("preset", "shortlist")) == "quick"
+                    else "Open the contact sheet and cast the character yourself. This "
+                    "ranking removes candidates that were never viable; it does not "
+                    "choose a look."
+                ),
+            },
+            artifacts=artifacts,
+            cost_usd=0.0,
+            duration_seconds=time.time() - started,
+            model="screen-test",
+        )
