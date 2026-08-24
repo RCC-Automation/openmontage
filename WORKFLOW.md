@@ -358,22 +358,26 @@ made for.
 
 ## What actually works today
 
-| Step | State |
-|---|---|
-| 1 Brief | conversational; skill not written |
-| 2 Casting | instrument built + calibrated; **loop skill not written** |
-| 3 Score | **not built** — local generation and beat analysis both proven; the loop and the artifacts are WP6 |
-| 4 Scene plan | written directly, schema-validated; skill not written |
-| 5 Scene look | **not built** — one still per scene, nothing compared |
-| 6 Export | **built, verified live** — cast, references, stills, prompts, audio |
-| 7 Render | works (VRGDG) |
-| 8 Import | built, not yet run live |
-| 9 Dailies | **not built** — parts exist, wired to nothing |
-| 10 Post | not built |
+**Every step now has a skill** under `skills/production/`, and a contract test
+asserts the manifest never names one nobody wrote. What varies is how much
+machinery sits behind each.
 
-The plumbing is proven. What is missing is mostly the *skills and gates* —
-the layer that makes each step visible and steerable. `PLAN.md` sequences that
-work; this document becomes fully true when every row above says built.
+| Step | Skill | Machinery behind it |
+|---|---|---|
+| 1 Brief | written | conversational; nothing else needed |
+| 2 Casting | written | instrument built + calibrated; **the loop has not been run through the skill yet** |
+| 3 Score | written | **tools built and proven live** — generate, measure, align; loop not yet run |
+| 4 Scene plan | written | schema-validated; beat-aware timing not yet exercised |
+| 5 Scene look | written | **the loop itself is not built** — same instrument as casting, not yet pointed at scenes |
+| 6 Export | written | **built, verified live** — cast, references, stills, prompts, audio, lyrics |
+| 7 Render | written | the Builder; nothing for us to build |
+| 8 Import | written | **built, verified live** — round trip closed 2026-08-24 |
+| 9 Dailies | written | **not built** — the parts exist (`visual_qa`, ArcFace, CLIP), wired to nothing |
+| 10 Post | written | compose works; VRGDG's grade/grain/face-fix routes not wired |
+
+The plumbing is proven end to end and every step is now *described*. What
+remains is the interactive machinery behind steps 2, 3, 5 and 9 — the four
+loops, which is where the quality comes from. `PLAN.md` sequences that work.
 
 ---
 

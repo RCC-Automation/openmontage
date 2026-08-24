@@ -336,6 +336,30 @@ cut came back duplicated, and a shot holding 4.16 s of chorus was labelled
 
 ---
 
+## WP3 — the pipeline is runnable in shape
+
+All ten stage skills written to the `WORKFLOW.md` contract
+(`triggers / needs / does / produces / presents / send-back`), plus the shared
+loop state the three picking loops need.
+
+| File | |
+|---|---|
+| `skills/production/*.md` | ten skills: brief, casting, score, scene-plan, scene-look, export, render, import, dailies, post |
+| `lib/loop_session.py` | round history, reactions kept verbatim beside what was made of them, favourites, verdicts, reopening |
+| `tests/contracts/test_loop_session.py` | 22 tests |
+| `tests/contracts/test_vrgdg_character_film_pipeline.py` | 12 tests — the manifest cannot name a skill nobody wrote, produce an artifact with no schema, need an input nothing made, or reorder score after scene plan |
+
+Each skill carries the traps that actually cost time here, at the step where
+they bite — the approved-slot self-copy at export, mis-driven distilled
+checkpoints at casting, the two meanings of "beat" at scene plan, the
+un-resolved `audio.music.asset_id` at post.
+
+The loops themselves — the conversation that turns "warmer, keep the collar"
+into the next round — are still unwritten. That is what WP2, WP2b and the score
+loop are.
+
+---
+
 ## Tests
 
 | Suite | |
