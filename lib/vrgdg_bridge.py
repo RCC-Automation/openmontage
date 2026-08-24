@@ -489,10 +489,13 @@ def apply_scene_plan_to_session(
     *,
     scene_map: SceneMap,
     style_context: Mapping[str, Any] | None = None,
+    casting: Mapping[str, Any] | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
     """Return a copy of *session* carrying the scene plan's timeline.
 
-    Everything outside ``segments`` is left exactly as VRGDG wrote it.
+    Everything outside ``segments`` is left exactly as VRGDG wrote it, unless
+    *casting* is given - then the cast model, seed, references and the matching
+    ``image_model_mode`` are written too (see :func:`apply_casting_to_session`).
     """
     if not isinstance(session, Mapping):
         raise VRGDGBridgeError("session must be an object")
@@ -512,7 +515,213 @@ def apply_scene_plan_to_session(
     )
     updated = copy.deepcopy(dict(session))
     updated["segments"] = segments
+    if casting:
+        updated = apply_casting_to_session(
+            updated, scene_plan, casting, warnings=warnings
+        )
     return updated, warnings
+
+
+# ---------------------------------------------------------------------------
+# casting: carry the screen test's verdict into the Builder
+# ---------------------------------------------------------------------------
+
+# The Builder chooses its image engine once per project (``image_model_mode``
+# is global UI state, not a segment field). Per scene it can only override the
+# chosen engine's settings. These are the engines a cast can target, and where
+# each keeps its per-scene block. SDXL checkpoints are deliberately absent:
+# they are driven by OpenMontage's bundled workflow, so their lane is to render
+# stills on our side and push them across as approved scene images.
+CASTABLE_ENGINES: dict[str, dict[str, str]] = {
+    "zimage": {
+        "settings_key": "zimage_settings",
+        "use_flag": "use_scene_zimage_settings",
+    },
+    "flux_klein": {
+        "settings_key": "flux_klein_settings",
+        "use_flag": "use_scene_flux_klein_settings",
+    },
+}
+
+# DECISIONS #30: a reference image is ~4x a description on a matched shot and
+# collapses when the framing changes (close-up ref: 0.93 on a close shot, 0.30
+# on a medium). References therefore attach per shot *family*, never globally.
+SHOT_FAMILIES: dict[str, str] = {
+    "extreme_close_up": "close_up",
+    "close_up": "close_up",
+    "medium_close": "close_up",
+    "over_shoulder": "medium",
+    "insert": "medium",
+    "medium": "medium",
+    "medium_wide": "medium",
+    "wide": "wide",
+    "extreme_wide": "wide",
+    "establishing": "wide",
+}
+
+# Scene types that contain the cast character. Everything else (text cards,
+# diagrams, transitions) keeps the project defaults.
+_CHARACTER_SCENE_TYPES = {"character_scene", "talking_head"}
+
+
+def shot_family(scene: Mapping[str, Any]) -> str:
+    """Which reference family a scene's framing belongs to."""
+    shot_language = scene.get("shot_language") or {}
+    size = str(shot_language.get("shot_size") or "").strip()
+    return SHOT_FAMILIES.get(size, "medium")
+
+
+def reference_for_scene(
+    scene: Mapping[str, Any], casting: Mapping[str, Any]
+) -> str | None:
+    """The reference image for this scene's shot family, or None.
+
+    A family without a reference gets none rather than a mismatched one -
+    a wrong-framing reference measured worse than no reference at all.
+    """
+    references = casting.get("references")
+    if isinstance(references, Mapping):
+        match = references.get(shot_family(scene))
+        if isinstance(match, str) and match.strip():
+            return match
+    fallback = casting.get("reference")
+    if isinstance(fallback, str) and fallback.strip():
+        # An explicit single reference is the caller saying "use it everywhere".
+        return fallback
+    return None
+
+
+def _cast_scene_ids(scene_plan: Mapping[str, Any], casting: Mapping[str, Any]) -> set[str]:
+    explicit = casting.get("scene_ids")
+    if isinstance(explicit, (list, tuple)) and explicit:
+        return {str(x) for x in explicit}
+    return {
+        str(s.get("id"))
+        for s in (scene_plan.get("scenes") or [])
+        if isinstance(s, Mapping) and str(s.get("type")) in _CHARACTER_SCENE_TYPES
+    }
+
+
+def apply_casting_to_session(
+    session: dict[str, Any],
+    scene_plan: Mapping[str, Any],
+    casting: Mapping[str, Any],
+    *,
+    warnings: list[str],
+) -> dict[str, Any]:
+    """Write a cast - model, seed, loras, references - into *session*.
+
+    Mutates only known keys on a session VRGDG authored (DECISIONS #2): the
+    per-scene settings block and its ``use_scene_*`` flag, the reference
+    fields, and the project-level ``image_model_mode``. The per-scene block
+    starts as a copy of the session's own global group for that engine, so the
+    encoder, VAE and resolutions stay whatever the user runs; only the model
+    file, seed and loras are overridden.
+
+    *casting* keys: ``model`` (filename, required), ``engine`` (one of
+    ``CASTABLE_ENGINES``, required - the tool resolves it from the model
+    registry when the caller has not), ``seed``, ``loras`` (list shaped for the
+    target engine), ``reference`` or ``references`` ({family: path}), and
+    ``scene_ids`` to override the default character-scene scope.
+    """
+    engine = str(casting.get("engine") or "").strip()
+    model = str(casting.get("model") or "").strip()
+    if engine not in CASTABLE_ENGINES:
+        warnings.append(
+            f"casting: engine {engine or '(none)'} is not a Builder engine "
+            f"({', '.join(sorted(CASTABLE_ENGINES))}); the cast was not applied. "
+            f"For SDXL casts, render stills with comfyui_image and re-export - "
+            f"approved stills push into the timeline."
+        )
+        return session
+    if not model:
+        warnings.append("casting: no model filename; the cast was not applied")
+        return session
+
+    spec = CASTABLE_ENGINES[engine]
+    settings_key, use_flag = spec["settings_key"], spec["use_flag"]
+
+    base = session.get(settings_key)
+    scene_settings: dict[str, Any] | None
+    if isinstance(base, Mapping):
+        scene_settings = copy.deepcopy(dict(base))
+        scene_settings["unet_name"] = model
+        seed = casting.get("seed")
+        if isinstance(seed, (int, float)) and not isinstance(seed, bool):
+            scene_settings["seed"] = int(seed)
+            if "seed_mode" in scene_settings:
+                scene_settings["seed_mode"] = "fixed"
+        loras = casting.get("loras")
+        if isinstance(loras, list) and loras:
+            scene_settings["use_loras"] = True
+            scene_settings["lora_count"] = len(loras)
+            scene_settings["loras"] = copy.deepcopy(loras)
+    else:
+        scene_settings = None
+        warnings.append(
+            f"casting: session has no {settings_key} group to build on; "
+            f"references were applied but model settings were not"
+        )
+
+    in_scope = _cast_scene_ids(scene_plan, casting)
+    scenes_by_id = {
+        str(s.get("id")): s
+        for s in (scene_plan.get("scenes") or [])
+        if isinstance(s, Mapping)
+    }
+    families_missing: set[str] = set()
+    applied: list[str] = []
+
+    segment_scene = {stable_segment_id(sid): sid for sid in in_scope}
+    for segment in session.get("segments", []):
+        if not isinstance(segment, dict):
+            continue
+        scene_id = segment_scene.get(str(segment.get("id") or ""), "")
+        if not scene_id:
+            continue
+        scene = scenes_by_id.get(scene_id, {})
+
+        if scene_settings is not None:
+            segment[settings_key] = copy.deepcopy(scene_settings)
+            segment[use_flag] = True
+
+        reference = reference_for_scene(scene, casting)
+        if reference:
+            if engine == "flux_klein":
+                segment["flux_subject_image_path"] = reference
+            else:
+                segment["ref_image_path"] = reference
+                segment["use_vision_reference"] = True
+        elif casting.get("references"):
+            families_missing.add(shot_family(scene))
+        applied.append(scene_id)
+
+    if families_missing:
+        warnings.append(
+            "casting: no reference for shot famil"
+            + ("ies " if len(families_missing) > 1 else "y ")
+            + ", ".join(sorted(families_missing))
+            + " - those scenes render from the description alone (DECISIONS #30: "
+            "a mismatched-framing reference scores worse than none)"
+        )
+    if not applied:
+        warnings.append("casting: no scene in the plan matched the cast's scope")
+        return session
+
+    previous_mode = session.get("image_model_mode")
+    session["image_model_mode"] = engine
+    out_of_scope = [
+        str(s.get("id"))
+        for sid, s in scenes_by_id.items()
+        if sid not in in_scope
+    ]
+    if previous_mode not in (None, engine) and out_of_scope:
+        warnings.append(
+            f"casting: image_model_mode changed {previous_mode} -> {engine}; "
+            f"out-of-scope scenes ({', '.join(out_of_scope)}) now render under "
+            f"{engine}'s project defaults"
+        )
+    return session
 
 
 def scene_plan_duration(scene_plan: Mapping[str, Any]) -> float:

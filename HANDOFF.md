@@ -109,8 +109,11 @@ pruning, and a missing-node preflight.
 beside bundled workflows and `workflow_json`. VRGDG patches its own template and
 returns a ready-to-queue graph, so there are no node-ID maps to maintain.
 
-**`lib/vrgdg_bridge.py` (572) + `tools/video/vrgdg_project_sync.py` (512)** — the
-two-way bridge between a `scene_plan` and a VRGDG builder session.
+**`lib/vrgdg_bridge.py` (~860) + `tools/video/vrgdg_project_sync.py` (~700)** — the
+two-way bridge between a `scene_plan` and a VRGDG builder session. Export is
+casting-aware: give it a cast record and it writes per-scene model settings,
+a fixed seed, per-shot-family reference images and the matching
+`image_model_mode` into the timeline (DECISIONS #32).
 
 **`lib/model_registry.py`** — what every model file on the machine actually is,
 read from its header, and which graph source can drive it. Persisted to
@@ -279,6 +282,14 @@ Printing both makes a healthy server look broken.
 mounted, so `localhost:8188` is *its* localhost, not the Windows host's. Anything
 needing a real render has to be run by the human in a host terminal. The same
 isolation blocks model downloads (no network egress).
+
+**`new_project` creates folders, never a session.** The route makes the
+directory skeleton and names a `session_path` it does not write; the Builder UI
+writes the first session itself from its own in-memory defaults right after
+(`newProject()` ends in `saveSession()`). So a project created only through the
+route cannot be `load_session`'d, and the export's create-then-load path fails
+with "Builder session was not found". Interim: a human clicks New Project once
+and the export targets it via `project_folder`. See DECISIONS.md #32.
 
 **The session has no version field.** ~95 top-level keys, ~110 per segment. Never
 construct one. See DECISIONS.md #2.

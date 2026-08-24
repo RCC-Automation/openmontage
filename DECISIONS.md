@@ -709,6 +709,59 @@ Recorded in the code rather than left to be rediscovered.
 
 ---
 
+## 32. The cast crosses the seam as data, and the engine is a project-level choice
+
+*accepted — 2026-08-24*
+
+**Context.** The user set the direction: the export should carry OpenMontage's
+knowledge — which model holds this character, which reference anchors which
+framing — instead of leaving every setting for hands on the Builder. Full
+automation is the stated goal, explicitly including revisiting #2's
+load-mutate-save boundary if that is what it eventually takes.
+
+**What the Builder turned out to allow.** `image_model_mode` is global UI
+state, not a segment field: one image engine per project. Per scene, the
+Builder honours a `use_scene_<engine>_settings` flag plus a settings block.
+So a cast writes: the flag, a per-scene block, the reference fields, and the
+project-level mode — all known keys on a session VRGDG authored, fully inside
+#2.
+
+**The per-scene block starts as a copy of the session's own global group.**
+Encoder, VAE and resolutions stay whatever the user runs; a cast overrides
+only `unet_name`, `seed` (+ `seed_mode: fixed`) and loras. The alternative —
+composing the block from the registry — would be a second source of truth for
+settings the Builder already owns (#22).
+
+**References attach per shot family, never globally.** #30 measured a close-up
+reference at 0.93 on a matched shot and 0.30 on a medium. `references:
+{close_up|medium|wide: path}` maps `shot_size` onto a family; a family without
+a reference renders from the description alone, with a warning naming the gap.
+Reference files are copied into the Builder project's `references/` folder —
+the mirror of import copying assets into the OpenMontage project (#4).
+
+**Engines split into two lanes.** Z-Image and Flux Klein are Builder engines:
+the cast lands as settings. SDXL is not — it is driven by our bundled
+workflow — so its lane is stills rendered on the OpenMontage side and pushed
+across as approved scene images (`push_approved_stills`, which already
+existed). The engine is resolved from the model registry by file header,
+never from the filename (#18): `darkBeast…DIMRclaw` resolving to `zimage` is
+the live proof.
+
+**What stays manual, for now.** `new_project` creates folders but never writes
+a session; the Builder UI writes the first session from its own in-memory
+defaults — the ~95-key object #2 forbids us to construct. So a human creates
+the project once and the export targets it via `project_folder`. Closing that
+last step is the standing goal; candidate paths are seeding through VRGDG's
+`save_project_as` (VRGDG constructs, we copy) or an upstream fix to
+`new_project`, both of which keep VRGDG the author of the session.
+
+**Cost.** A cast is only as good as the cast record; a stale record silently
+pins every scene to an old model. The record carries `chosen_by: human` (#15)
+and the export reports `casting_applied` so the choice is visible at the
+moment it lands.
+
+---
+
 ## Open questions
 
 - **Where should beat timing win?** L3 has VRGDG measure the music and snap scene

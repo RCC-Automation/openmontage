@@ -18,6 +18,7 @@ Two operations, in opposite directions:
 from __future__ import annotations
 
 import json
+import shutil
 import time
 from pathlib import Path
 from typing import Any
@@ -36,6 +37,7 @@ from tools.base_tool import (
 )
 from tools._comfyui.vrgdg import VRGDGClient, VRGDGError
 from lib.vrgdg_bridge import (
+    CASTABLE_ENGINES,
     SceneMap,
     VRGDGBridgeError,
     apply_scene_plan_to_session,
@@ -123,6 +125,26 @@ class VRGDGProjectSync(BaseTool):
                 "description": (
                     "export: playbook-derived style, passed to build_shot_prompt as "
                     "Layer 5. Keys: mood, visual_language.aesthetic."
+                ),
+            },
+            "casting": {
+                "type": "object",
+                "description": (
+                    "export: the cast to write into the timeline - the screen "
+                    "test's verdict carried across the seam. Keys: model "
+                    "(filename), engine (zimage|flux_klein; resolved from the "
+                    "model registry when omitted), seed, loras, reference or "
+                    "references ({close_up|medium|wide: path}, per DECISIONS "
+                    "#30), scene_ids. Also accepts a full cast_record (the "
+                    "candidate block is flattened)."
+                ),
+            },
+            "casting_path": {
+                "type": "string",
+                "description": (
+                    "export: path to a cast record JSON. Defaults to "
+                    "<project_dir>/artifacts/cast_record.json when that file "
+                    "exists; inline casting wins over the file."
                 ),
             },
             "overwrite_timeline": {
@@ -387,12 +409,17 @@ class VRGDGProjectSync(BaseTool):
                 )
 
         scene_map = SceneMap.load(project_dir)
+        casting, casting_warnings = self._resolve_casting(
+            inputs, project_dir, project_folder
+        )
         session, warnings = apply_scene_plan_to_session(
             session,
             scene_plan,
             scene_map=scene_map,
             style_context=inputs.get("style_context"),
+            casting=casting,
         )
+        warnings = casting_warnings + warnings
         self._client.save_session(project_folder, session)
 
         extras: dict[str, Any] = {}
@@ -433,6 +460,19 @@ class VRGDGProjectSync(BaseTool):
                 "stills_pushed": pushed,
                 "scene_map": scene_map.pairs,
                 "warnings": warnings,
+                **(
+                    {
+                        "casting_applied": {
+                            "model": casting.get("model"),
+                            "engine": casting.get("engine"),
+                            "seed": casting.get("seed"),
+                            "references": casting.get("references")
+                            or casting.get("reference"),
+                        }
+                    }
+                    if casting
+                    else {}
+                ),
                 **extras,
             },
             artifacts=[str(project_dir / "artifacts" / "vrgdg_scene_map.json")],
@@ -444,6 +484,123 @@ class VRGDGProjectSync(BaseTool):
     # ------------------------------------------------------------------
     # helpers
     # ------------------------------------------------------------------
+
+    def _resolve_casting(
+        self, inputs: dict[str, Any], project_dir: Path, project_folder: str
+    ) -> tuple[dict[str, Any] | None, list[str]]:
+        """Load the cast, resolve its engine, and stage its references.
+
+        Returns (casting, warnings); casting is None when there is nothing to
+        apply, which is the common case and not a problem.
+        """
+        warnings: list[str] = []
+        casting = inputs.get("casting")
+        if isinstance(casting, dict):
+            casting = dict(casting)
+        else:
+            explicit = inputs.get("casting_path")
+            path = Path(explicit) if explicit else project_dir / "artifacts" / "cast_record.json"
+            if not path.is_file():
+                if explicit:
+                    warnings.append(f"casting: no cast record at {path}")
+                return None, warnings
+            try:
+                casting = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                warnings.append(f"casting: unreadable cast record {path}: {exc}")
+                return None, warnings
+            if not isinstance(casting, dict):
+                warnings.append(f"casting: {path} is not a JSON object")
+                return None, warnings
+
+        # A full cast_record keeps the model inside its candidate block.
+        candidate = casting.get("candidate")
+        if isinstance(candidate, dict):
+            casting.setdefault("model", candidate.get("model"))
+            if candidate.get("loras"):
+                casting.setdefault("loras", candidate.get("loras"))
+
+        if not casting.get("engine"):
+            engine, engine_warnings = self._engine_for_model(
+                str(casting.get("model") or "")
+            )
+            warnings.extend(engine_warnings)
+            if engine:
+                casting["engine"] = engine
+
+        self._stage_references(casting, project_folder, warnings)
+        return casting, warnings
+
+    @staticmethod
+    def _engine_for_model(model: str) -> tuple[str | None, list[str]]:
+        """Which Builder engine drives *model*, from the registry, not the name."""
+        if not model:
+            return None, ["casting: no model filename to resolve an engine for"]
+        try:
+            from lib.model_registry import (
+                ModelRegistry,
+                default_ledger_path,
+                default_models_root,
+            )
+
+            registry = ModelRegistry.load(default_models_root(), default_ledger_path())
+            key = registry.key_for_basename(model)
+            driver = registry.driver_for(key) if key else None
+        except Exception as exc:  # registry unavailable is a warning, not a crash
+            return None, [f"casting: could not consult the model registry: {exc}"]
+        if driver is None:
+            return None, [
+                f"casting: {model} is not in the model registry; "
+                f"pass engine explicitly or run a registry scan"
+            ]
+        kind = driver.get("kind")
+        if kind in CASTABLE_ENGINES:
+            return str(kind), []
+        return None, [
+            f"casting: {model} is driven by "
+            f"{driver.get('workflow') or driver.get('graph_source') or 'an unknown path'}, "
+            f"which is not a Builder engine - render stills with comfyui_image "
+            f"and re-export; approved stills push into the timeline"
+        ]
+
+    @staticmethod
+    def _stage_references(
+        casting: dict[str, Any], project_folder: str, warnings: list[str]
+    ) -> None:
+        """Copy reference images into the VRGDG project and rewrite the paths.
+
+        Staged so the Builder project stays self-contained - the mirror of the
+        import direction copying assets into the OpenMontage project.
+        """
+
+        def stage(path_text: str, stem: str) -> str | None:
+            source = Path(str(path_text).strip().strip('"'))
+            if not source.is_file():
+                warnings.append(f"casting: reference {source} does not exist; dropped")
+                return None
+            target_dir = Path(project_folder) / "references"
+            try:
+                target_dir.mkdir(parents=True, exist_ok=True)
+                target = target_dir / f"{stem}{source.suffix.lower()}"
+                shutil.copy2(source, target)
+            except OSError as exc:
+                warnings.append(f"casting: could not stage reference {source}: {exc}")
+                return None
+            return str(target.resolve())
+
+        references = casting.get("references")
+        if isinstance(references, dict):
+            staged: dict[str, str] = {}
+            for family, path_text in references.items():
+                if not (isinstance(path_text, str) and path_text.strip()):
+                    continue
+                copied = stage(path_text, f"reference_{family}")
+                if copied:
+                    staged[str(family)] = copied
+            casting["references"] = staged
+        elif isinstance(casting.get("reference"), str) and casting["reference"].strip():
+            copied = stage(casting["reference"], "reference")
+            casting["reference"] = copied or ""
 
     def _load_session(self, project_folder: str) -> dict[str, Any] | None:
         response = self._client.load_session(project_folder)

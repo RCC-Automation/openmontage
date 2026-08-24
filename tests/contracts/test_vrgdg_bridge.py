@@ -841,3 +841,241 @@ def test_scene_ids_survive_an_export_then_import(project_dir, vrgdg_media):
     validate_artifact("edit_decisions", result.data["edit_decisions"])
     assert [c["id"] for c in result.data["edit_decisions"]["cuts"]] == ["sc1", "sc2"]
     assert {a["scene_id"] for a in result.data["asset_manifest"]["assets"]} == {"sc1", "sc2"}
+
+
+# ---------------------------------------------------------------------------
+# casting: the screen test's verdict carried into the Builder
+# ---------------------------------------------------------------------------
+
+def _cast_session() -> dict:
+    """A scaffold that also carries the global engine groups, as real ones do."""
+    session = _scaffold_session()
+    session["image_model_mode"] = "flux_klein"
+    session["zimage_settings"] = {
+        "unet_name": "zImageTurbo_turbo.safetensors",
+        "clip_name": "qwen3_4b_fp8_scaled.safetensors",
+        "vae_name": "ae.safetensors",
+        "first_pass_width": 1280,
+        "second_pass_width": 1920,
+        "seed": 1,
+        "seed_mode": "random",
+        "use_loras": False,
+        "lora_count": 0,
+        "loras": [],
+    }
+    session["flux_klein_settings"] = {
+        "unet_name": "flux-2-klein-4b-fp8.safetensors",
+        "clip_name": "qwen3_4b_fp8_scaled.safetensors",
+        "vae_name": "flux2-vae.safetensors",
+        "width": 1024,
+        "seed": 100,
+    }
+    return session
+
+
+def _cast_plan() -> dict:
+    """The fixture plan, but with scenes the cast character appears in."""
+    plan = _scene_plan()
+    for scene in plan["scenes"]:
+        scene["type"] = "character_scene"
+    return plan
+
+
+def _cast() -> dict:
+    return {
+        "model": "darkBeast30BF16INT8_dbzit9DIMRclaw.safetensors",
+        "engine": "zimage",
+        "seed": 7777,
+    }
+
+
+def _apply_cast(session=None, plan=None, casting=None):
+    from lib.vrgdg_bridge import apply_scene_plan_to_session
+
+    return apply_scene_plan_to_session(
+        session if session is not None else _cast_session(),
+        plan if plan is not None else _cast_plan(),
+        scene_map=SceneMap(),
+        casting=casting if casting is not None else _cast(),
+    )
+
+
+def test_casting_writes_scene_settings_from_the_sessions_own_group():
+    updated, _ = _apply_cast()
+    for segment in updated["segments"]:
+        block = segment["zimage_settings"]
+        assert block["unet_name"] == "darkBeast30BF16INT8_dbzit9DIMRclaw.safetensors"
+        assert block["seed"] == 7777
+        assert block["seed_mode"] == "fixed"
+        assert segment["use_scene_zimage_settings"] is True
+
+
+def test_casting_overrides_only_model_seed_and_loras():
+    # Encoder, VAE and resolutions stay whatever the user runs; a cast is a
+    # model choice, not a graph redesign.
+    updated, _ = _apply_cast()
+    block = updated["segments"][0]["zimage_settings"]
+    assert block["clip_name"] == "qwen3_4b_fp8_scaled.safetensors"
+    assert block["vae_name"] == "ae.safetensors"
+    assert block["first_pass_width"] == 1280
+    # and the global group itself is untouched - only the per-scene copies change
+    assert updated["zimage_settings"]["unet_name"] == "zImageTurbo_turbo.safetensors"
+    assert updated["zimage_settings"]["seed_mode"] == "random"
+
+
+def test_casting_flips_the_project_image_engine():
+    # image_model_mode is global Builder state; per-scene settings are dormant
+    # under the wrong engine, so the cast must flip it or it did nothing.
+    updated, _ = _apply_cast()
+    assert updated["image_model_mode"] == "zimage"
+
+
+def test_casting_references_attach_per_shot_family():
+    # DECISIONS #30: a close-up reference is worth 0.93 on a close shot and
+    # 0.30 on a medium. A family without a reference gets none, plus a warning.
+    casting = {**_cast(), "references": {"close_up": r"C:\refs\close.png"}}
+    updated, warnings = _apply_cast(casting=casting)
+    wide, close = updated["segments"]
+    assert close["ref_image_path"] == r"C:\refs\close.png"
+    assert close["use_vision_reference"] is True
+    assert not wide.get("ref_image_path")
+    assert any("wide" in w and "DECISIONS #30" in w for w in warnings)
+
+
+def test_a_single_reference_is_used_everywhere():
+    casting = {**_cast(), "reference": r"C:\refs\any.png"}
+    updated, warnings = _apply_cast(casting=casting)
+    assert all(
+        s["ref_image_path"] == r"C:\refs\any.png" for s in updated["segments"]
+    )
+    assert not any("DECISIONS #30" in w for w in warnings)
+
+
+def test_a_flux_cast_uses_the_subject_image_field():
+    # Flux Klein's reference goes through its own subject-image plumbing, not
+    # the vision-reference checkbox the other engines share.
+    casting = {
+        "model": "flux-2-klein-4b-fp8.safetensors",
+        "engine": "flux_klein",
+        "seed": 42,
+        "reference": r"C:\refs\subject.png",
+    }
+    updated, _ = _apply_cast(casting=casting)
+    segment = updated["segments"][0]
+    assert segment["flux_subject_image_path"] == r"C:\refs\subject.png"
+    assert not segment.get("use_vision_reference")
+    assert segment["use_scene_flux_klein_settings"] is True
+    assert updated["image_model_mode"] == "flux_klein"
+
+
+def test_a_non_builder_engine_warns_and_leaves_the_session_alone():
+    # SDXL is driven by the bundled workflow on our side; its lane is rendered
+    # stills pushed across, never Builder settings.
+    casting = {"model": "juggernautXL.safetensors", "engine": "sdxl"}
+    updated, warnings = _apply_cast(casting=casting)
+    assert updated["image_model_mode"] == "flux_klein"
+    assert not any(s.get("use_scene_zimage_settings") for s in updated["segments"])
+    assert any("not a Builder engine" in w for w in warnings)
+
+
+def test_casting_without_the_settings_group_still_attaches_references():
+    session = _cast_session()
+    del session["zimage_settings"]
+    casting = {**_cast(), "reference": r"C:\refs\any.png"}
+    updated, warnings = _apply_cast(session=session, casting=casting)
+    segment = updated["segments"][0]
+    assert segment["ref_image_path"] == r"C:\refs\any.png"
+    assert "zimage_settings" not in segment
+    assert any("no zimage_settings group" in w for w in warnings)
+
+
+def test_casting_defaults_to_scenes_the_character_is_in():
+    # The fixture plan's scenes are not character scenes, so nothing matches
+    # and the session says so rather than casting a text card.
+    updated, warnings = _apply_cast(plan=_scene_plan())
+    assert updated["image_model_mode"] == "flux_klein"
+    assert any("no scene in the plan matched" in w for w in warnings)
+
+
+def test_casting_scope_can_be_narrowed_to_named_scenes():
+    casting = {**_cast(), "scene_ids": ["sc2"]}
+    updated, _ = _apply_cast(casting=casting)
+    wide, close = updated["segments"]
+    assert not wide.get("use_scene_zimage_settings")
+    assert close["use_scene_zimage_settings"] is True
+
+
+def test_casting_loras_pass_through():
+    loras = [{"name": "character.safetensors", "first_pass_strength": 0.8,
+              "second_pass_strength": 0, "strength": 0.8}]
+    casting = {**_cast(), "loras": loras}
+    updated, _ = _apply_cast(casting=casting)
+    block = updated["segments"][0]["zimage_settings"]
+    assert block["use_loras"] is True
+    assert block["lora_count"] == 1
+    assert block["loras"] == loras
+
+
+def test_a_cast_record_is_flattened_by_the_tool(project_dir):
+    # The screen test's cast_record keeps the model inside its candidate
+    # block; the tool accepts that shape as-is.
+    record = {
+        "version": "1.0",
+        "character": "Identity",
+        "candidate": {
+            "model": "darkBeast30BF16INT8_dbzit9DIMRclaw.safetensors",
+            "loras": [],
+        },
+        "engine": "zimage",
+        "seed": 7777,
+    }
+    (project_dir / "artifacts" / "cast_record.json").write_text(
+        json.dumps(record), encoding="utf-8"
+    )
+    tool = _export_tool(_cast_session())
+    casting, warnings = tool._resolve_casting({}, project_dir, str(project_dir))
+    assert warnings == []
+    assert casting["model"] == "darkBeast30BF16INT8_dbzit9DIMRclaw.safetensors"
+    assert casting["engine"] == "zimage"
+
+
+def test_references_are_staged_into_the_builder_project(tmp_path):
+    # The Builder project must stay self-contained - the mirror of import
+    # copying assets into the OpenMontage project.
+    source = tmp_path / "close.png"
+    source.write_bytes(b"\x89PNG fake")
+    project = tmp_path / "vrgdg_project"
+    project.mkdir()
+    casting = {"references": {"close_up": str(source), "wide": str(tmp_path / "missing.png")}}
+    warnings: list[str] = []
+    from tools.video.vrgdg_project_sync import VRGDGProjectSync
+
+    VRGDGProjectSync._stage_references(casting, str(project), warnings)
+    staged = Path(casting["references"]["close_up"])
+    assert staged.is_file() and staged.parent == project / "references"
+    assert "wide" not in casting["references"]
+    assert any("does not exist" in w for w in warnings)
+
+
+def test_export_applies_and_reports_the_cast(project_dir, tmp_path):
+    (project_dir / "artifacts" / "scene_plan.json").write_text(
+        json.dumps(_cast_plan()), encoding="utf-8"
+    )
+    vrgdg_folder = tmp_path / "vrgdg_target"
+    vrgdg_folder.mkdir()
+    tool = _export_tool(_cast_session())
+    result = tool.execute(
+        {
+            "operation": "export",
+            "project_dir": str(project_dir),
+            "project_folder": str(vrgdg_folder),
+            "casting": _cast(),
+        }
+    )
+    assert result.success, result.error
+    assert result.data["casting_applied"]["model"].startswith("darkBeast30")
+    assert result.data["casting_applied"]["engine"] == "zimage"
+    saved = tool._client.saved
+    assert saved["image_model_mode"] == "zimage"
+    assert all(s["use_scene_zimage_settings"] for s in saved["segments"])
+    assert all(s["zimage_settings"]["seed"] == 7777 for s in saved["segments"])

@@ -74,6 +74,32 @@ changed **0 project-level keys**.
 
 ---
 
+## Casting-aware export ✅ built, ✅ verified live, not yet rendered
+
+The seam now carries OpenMontage's casting knowledge instead of dropping it.
+`vrgdg_project_sync` export accepts `casting` inline or reads
+`artifacts/cast_record.json`, resolves the engine from the model registry (by
+header, never filename), and writes into the session: per-scene
+`<engine>_settings` built on the session's own global group (only `unet_name`,
+`seed`+`seed_mode: fixed`, loras overridden), `use_scene_*` flags, per-shot-family
+reference images staged into the Builder project's `references/`, and the
+project-level `image_model_mode`. DECISIONS #32; references-per-family is #30
+operationalized.
+
+Verified live against `VRGDG_Project_EndToEndTest`: darkBeast cast from
+`cast_record.json` alone — engine `zimage` resolved from the registry, both
+character scenes carry darkBeast at seed 7777 fixed with the user's own
+clip/VAE, sc2 (close) got the staged reference with `use_vision_reference`,
+sc1 (wide) correctly got none plus the #30 warning, mode flipped
+`flux_klein → zimage`, global groups untouched.
+
+Two lanes by engine: Z-Image / Flux Klein land as Builder settings; SDXL warns
+and takes the approved-stills lane (`push_approved_stills`). What stays manual:
+creating the project (the `new_project` route writes no session — see the
+HANDOFF trap and #32); the standing goal is closing that too.
+
+---
+
 ## Render clock + screen test ✅ committed `730facd`, ✅ **verified live**
 
 From `IDEAS.md`. Two of the proposed pieces, built together because the second
@@ -220,18 +246,18 @@ online, so their totals are not comparable), `casting/{kleinprobe,sdxlprobe,zpro
 |---|---|
 | `test_model_registry.py` | 75 passed |
 | `test_screen_test.py` | 73 passed |
-| `test_vrgdg_tools.py` + `test_vrgdg_bridge.py` | 111 passed (clock-in baseline) |
+| `test_vrgdg_tools.py` + `test_vrgdg_bridge.py` | 125 passed (clock-in baseline) |
 | `test_vrgdg_tools.py` | 45 passed |
-| `test_vrgdg_bridge.py` | 66 passed |
+| `test_vrgdg_bridge.py` | 80 passed |
 | `test_render_clock.py` + `test_screen_test.py` | 94 passed |
-| full `tests/contracts` | **1179 passed, 8 skipped** — no failures |
+| full `tests/contracts` | **1193 passed, 8 skipped** — no failures |
 
 Artifacts are validated against the real `schemas/artifacts/*.schema.json`, not
 spot-checked — a manifest that does not validate fails much later, at
 checkpoint-write time, with a far worse error.
 
-Full `tests/contracts` now runs clean on this machine — **1179 passed, 8 skipped
-in 41 s**, re-verified 2026-08-24. The ~13 `google.genai` / mermaid-CLI failures
+Full `tests/contracts` now runs clean on this machine — **1193 passed, 8 skipped
+in 42 s**, re-verified 2026-08-24. The ~13 `google.genai` / mermaid-CLI failures
 noted previously do not appear here; expect them again on a bare environment
 without those installed.
 
@@ -309,11 +335,12 @@ trusted until reconciled.
    in ComfyUI's loader dropdowns, so no restart is needed unless the Builder was
    open before they appeared. This is the only remaining prerequisite, and it
    needs a human at the machine.
-2. **Live round trip** — plan a 2-scene film → `operation: "export"` → render both
-   scenes in the Builder → `operation: "import"` → confirm the same scene ids
-   come back. This is the test that proves the system, and nothing after it
-   should start before it passes. It is the oldest unfinished item here, and as
-   of today nothing blocks it.
+2. **Live round trip** — the export half is done and cast-aware:
+   `VRGDG_Project_EndToEndTest` holds the 2-scene clockwork-heroine timeline
+   (sc2 is a 360° orbit) with darkBeast cast per scene at seed 7777 and a close
+   reference staged. What remains: render both scenes in the Builder (GPU-hours;
+   deliberately deferred) → `operation: "import"` → confirm the same scene ids
+   come back. Nothing blocks it but the render time.
 3. Then L3 (beat timing) or L4 (local post tier) — both self-contained, either
    order.
 
