@@ -329,11 +329,13 @@ construct one. See DECISIONS.md #2.
 
 ## 6b. The production workflow
 
-`PLAN.md` holds the plan (nine steps, five work packages), `WORKFLOW.md` the
+`PLAN.md` holds the plan (ten steps, six work packages), `WORKFLOW.md` the
 manual, `pipeline_defs/vrgdg-character-film.yaml` the manifest Backlot draws
 its rail from. The manifest **is not runnable yet** — its stage skills under
 `skills/production/` are unwritten; only export, render and import have
-machinery behind them. Read `PLAN.md` before building any skill or dashboard
+machinery behind them. **Step 3 is Score** (added 2026-08-24, WP6): the song,
+its lyrics and its measured beat grid, before the scene plan, so cuts land on
+real beats. Nothing behind it is built. Read `PLAN.md` before building any skill or dashboard
 work, and `WORKFLOW.md`'s status table before promising a step works.
 
 ---

@@ -135,7 +135,11 @@ def asset_type_for(path: Path) -> str | None:
     return None
 
 
-_ASSET_SUBDIR = {"image": "images", "video": "video", "audio": "audio"}
+_ASSET_SUBDIR = {"image": "images", "video": "video", "audio": "audio", "music": "music"}
+
+# The project-wide music track is one asset, not one per scene, so its id is a
+# constant rather than derived from a scene. edit_decisions references it by id.
+MUSIC_ASSET_ID = "mus_project_audio"
 
 
 def copy_into_project(
@@ -272,10 +276,58 @@ def session_to_asset_manifest(
                 entry["duration_seconds"] = round(duration, 3)
             assets.append(entry)
 
+    # The timeline's audio bed is a project-level asset, not a per-scene one:
+    # VRGDG holds one track for the whole film and snaps every segment to its
+    # beat grid. Without this entry the track is invisible to OpenMontage -
+    # edit_decisions references music by manifest id, so an unlisted track
+    # cannot be referenced at all, and the composed video comes out silent.
+    audio_source = _as_path(session.get("audio_path"))
+    if audio_source is not None:
+        if not audio_source.is_file():
+            warnings.append(
+                f"the timeline's audio track is missing on disk ({audio_source}); "
+                f"the cut will have no music"
+            )
+        else:
+            if copy_assets:
+                rel = copy_into_project(
+                    audio_source, project_dir, "music", stem="project_audio"
+                )
+            else:
+                rel = audio_source.as_posix()
+            music_entry: dict[str, Any] = {
+                "id": MUSIC_ASSET_ID,
+                "type": "music",
+                "path": rel,
+                "source_tool": "vrgdg_project_sync",
+                "scene_id": "global",
+                "cost_usd": 0.0,
+                "format": audio_source.suffix.lstrip(".").lower(),
+                "provider": "local ComfyUI (VRGDG)",
+                "license": "user-generated",
+            }
+            duration = _number(session.get("audio_duration"))
+            if duration:
+                music_entry["duration_seconds"] = round(duration, 3)
+            assets.append(music_entry)
+
     return (
         {"version": "1.0", "assets": assets, "total_cost_usd": 0.0},
         warnings,
     )
+
+
+def music_asset_id(manifest: Mapping[str, Any]) -> str | None:
+    """Id of the manifest's project-wide music track, or None if it has none.
+
+    edit_decisions references music by manifest id, so this is the one place
+    that decides whether there is a track to reference - keeping the two
+    artifacts from disagreeing about whether the film has music.
+    """
+    for asset in manifest.get("assets", []) or []:
+        if isinstance(asset, Mapping) and asset.get("type") == "music":
+            return str(asset.get("id") or "") or None
+    return None
 
 
 def session_to_edit_decisions(
@@ -283,6 +335,7 @@ def session_to_edit_decisions(
     *,
     scene_map: SceneMap,
     render_runtime: str = "ffmpeg",
+    music_asset_id: str | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
     """Build ``edit_decisions`` from the timeline. Returns (artifact, warnings).
 
@@ -327,9 +380,18 @@ def session_to_edit_decisions(
         "cuts": cuts,
         "render_runtime": render_runtime,
     }
-    audio_path = _as_path(session.get("audio_path"))
-    if audio_path is not None:
-        artifact["music"] = {"source": audio_path.name}
+    # Music is referenced by manifest id, never by path: that is the contract
+    # every composition path reads (hyperframes_compose resolves
+    # audio.music.asset_id against the manifest). The top-level "music" block
+    # the schema still carries is legacy, and a bare filename in it resolves
+    # against nothing.
+    if music_asset_id:
+        artifact["audio"] = {"music": {"asset_id": music_asset_id}}
+    elif _as_path(session.get("audio_path")) is not None:
+        warnings.append(
+            "the timeline has an audio track but it is not in the asset manifest, "
+            "so the cut cannot reference it - the composed video will be silent"
+        )
     tempo = _number(session.get("detected_tempo_bpm"))
     if tempo:
         artifact.setdefault("metadata", {})["detected_tempo_bpm"] = tempo

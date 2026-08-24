@@ -22,28 +22,29 @@ samplers and parameters without hand-editing in ComfyUI.
 
 ## 1. The workflow at a glance
 
-A film is made in nine steps. Each step has one owner, produces one thing you
+A film is made in ten steps. Each step has one owner, produces one thing you
 can look at, and stops for your approval before the next one starts.
 
 ```
- 1. Brief ─► 2. Casting ─► 3. Scene plan ─► 4. Scene look ─► 5. Export ─► 6. Render ─► 7. Import ─► 8. Dailies ─► 9. Post
-   you+agent    loop          agent           loop             agent        you           agent         loop          agent
-               (who is she?                  (where is she,                (Builder)                   (agent flags,
-                agent renders,                how does it look?                                         you decide)
-                you pick)                     agent renders, you pick)
+ 1. Brief ─► 2. Casting ─► 3. Score ─► 4. Scene plan ─► 5. Scene look ─► 6. Export ─► 7. Render ─► 8. Import ─► 9. Dailies ─► 10. Post
+   you+agent    loop          loop        agent           loop             agent        you           agent         loop           agent
+               (who is she?   (what does                 (where is she,                (Builder)                   (agent flags,
+                agent renders, it sound                   how does it look?                                         you decide)
+                you pick)      like?)                     agent renders, you pick)
 ```
 
 | # | Step | What happens | Who | You get to see | You can |
 |---|---|---|---|---|---|
 | 1 | **Brief** | You say what the film is; the agent turns it into a written brief: story, character, look, length, mood. | you + agent | the brief, one page | edit any line, or rewrite it |
 | 2 | **Casting** | The agent renders your character across models, seeds, prompts and LoRAs, round by round. You react to a contact sheet each round ("more like #3, warmer, keep the collar"). It ends with a **cast record** — a locked look. | agent renders, **you pick** | a contact sheet per round, with measured identity/look scores | steer every round; pick; ask for another round; stop |
-| 3 | **Scene plan** | The agent writes the shots: what happens, framing, camera, lighting, timing, music. Every scene re-states the character. | agent | the plan, scene by scene, on the board | edit a scene, reorder, change a shot, add/remove |
-| 4 | **Scene look** | For each scene the agent proposes several *directions* at once (dawn / night with brass lamps / rain at the window), renders them with the cast character in place, and shows a contact sheet. You pick a direction, then a frame. Ends with a **hero still** per scene — the frame the video starts from. | agent renders, **you pick** | a contact sheet per scene, with scores and a continuity check against the cast | pick; ask for more directions; change the prompt; hand a scene to the Lab for a better render |
-| 5 | **Export** | The plan, the cast, the reference images, the prompts, the hero stills and the music land in a VRGDG Builder project, ready to render. | agent | the Builder timeline, fully filled | change anything in the Builder before rendering |
-| 6 | **Render** | You press render in the Builder. This is the creative eye on each take. | **you** (Builder) | the clips | re-take a scene, tweak a prompt, try a seed |
-| 7 | **Import** | Your clips and your timeline come back into the film's record with the same scene ids they left with. | agent | the manifest and the cut | — (it is a read) |
-| 8 | **Dailies** | The agent checks every clip against what the scene asked for and against the cast record: wrong motion, artifacts, the character drifted. It flags; it never decides. | agent flags, **you decide** | a dailies report: which takes look wrong and why | keep, re-shoot one scene (back to step 4 or 5 for that scene), or change the plan |
-| 9 | **Post** | Colour, grain, face repair, enhance, stitch, final. | agent (VRGDG's post routes) | the final cut | approve, or send back |
+| 3 | **Score** | The agent writes the song with you — what it is about, its style, its lyrics — generates it locally, and you listen. Rounds repeat until you say that is it. Ends with a locked track, and its tempo and beat positions **measured from the delivered audio**, never from what was asked for. | agent makes, **you listen** | the lyrics to read, the track to play, the measured beat grid | rewrite a line; change the style; another take; bring your own track instead |
+| 4 | **Scene plan** | The agent writes the shots: what happens, framing, camera, lighting, timing, music. Every scene re-states the character. | agent | the plan, scene by scene, on the board | edit a scene, reorder, change a shot, add/remove |
+| 5 | **Scene look** | For each scene the agent proposes several *directions* at once (dawn / night with brass lamps / rain at the window), renders them with the cast character in place, and shows a contact sheet. You pick a direction, then a frame. Ends with a **hero still** per scene — the frame the video starts from. | agent renders, **you pick** | a contact sheet per scene, with scores and a continuity check against the cast | pick; ask for more directions; change the prompt; hand a scene to the Lab for a better render |
+| 6 | **Export** | The plan, the cast, the reference images, the prompts, the hero stills and the music land in a VRGDG Builder project, ready to render. | agent | the Builder timeline, fully filled | change anything in the Builder before rendering |
+| 7 | **Render** | You press render in the Builder. This is the creative eye on each take. | **you** (Builder) | the clips | re-take a scene, tweak a prompt, try a seed |
+| 8 | **Import** | Your clips and your timeline come back into the film's record with the same scene ids they left with. | agent | the manifest and the cut | — (it is a read) |
+| 9 | **Dailies** | The agent checks every clip against what the scene asked for and against the cast record: wrong motion, artifacts, the character drifted. It flags; it never decides. | agent flags, **you decide** | a dailies report: which takes look wrong and why | keep, re-shoot one scene (back to step 5 or 6 for that scene), or change the plan |
+| 10 | **Post** | Colour, grain, face repair, enhance, stitch, final. | agent (VRGDG's post routes) | the final cut | approve, or send back |
 
 Two rules hold everywhere:
 
@@ -53,9 +54,14 @@ Two rules hold everywhere:
   send back, logs what it chose and why, and appears on the board while it is
   happening (AGENT_GUIDE, Rule Zero).
 
-Steps 2, 4 and 8 are **loops** — the three places where quality actually comes
-from: who she is, what each scene looks like, and whether the footage holds.
-Everything else is a straight line.
+Steps 2, 3, 5 and 9 are **loops** — the four places where quality actually
+comes from: who she is, what the film sounds like, what each scene looks like,
+and whether the footage holds. Everything else is a straight line.
+
+**The score sits before the scene plan on purpose.** In a music video the
+track decides when to cut, so the shots are written to a measured beat grid
+rather than nudged onto one afterwards. Casting does not depend on the song,
+which is why it stays first.
 
 Steps 2 and 4 are the same instrument pointed at different questions. Casting
 varies the model, seed, prompt and LoRA to find a *person*; scene look varies
@@ -76,17 +82,23 @@ Honest inventory. "Exists" means built, tested and run live on this machine.
 |---|---|---|
 | 1 Brief | `creative-intake`, `taste-direction` meta skills; `brief` artifact schema | a VRGDG-aware brief (character block, look, music intent) |
 | 2 Casting | the instrument: `screen_test` tool, five calibrated axes, model registry, render clock, cast record shape | **the conversation** — a skill that turns your reaction into the next round |
-| 3 Scene plan | scene-director skills in every pipeline; `scene_plan` schema; shot-language vocabulary | a VRGDG-aware director: character re-stated per scene, shot families, beat-aware timing |
-| 4 Scene look | the same instrument as casting (matrix, contact sheet, calibrated axes); one still per scene rendered with the cast (today: rendered once, never compared); VRGDG's location-reference slot on export | **the loop**: directions at once, pick, refine; a per-scene look record; the continuity check of the cast inside the scene; location references |
-| 5 Export | the bridge, cast-aware: model, seed, references per shot family, both prompts, stills, music with beats | a skill with a checkpoint around it; session bootstrap still manual (HANDOFF trap) |
-| 6 Render | the Builder | — |
-| 7 Import | the bridge | a skill with a checkpoint around it |
-| 8 Dailies | `visual_qa`, `composition_validator`, ArcFace + CLIP — wired to nothing | **the loop** |
-| 9 Post | VRGDG's LUT / grain / face-fix / enhance / stitch routes (L4) | everything on our side |
+| 3 Score | local generation with lyrics (`comfyui_music`/ACE-Step); VRGDG's beat analysis, already run live on export | **everything on our side**: the loop, the `song` and `beat_map` schemas, lyrics across the seam |
+| 4 Scene plan | scene-director skills in every pipeline; `scene_plan` schema; shot-language vocabulary | a VRGDG-aware director: character re-stated per scene, shot families, beat-aware timing |
+| 5 Scene look | the same instrument as casting (matrix, contact sheet, calibrated axes); one still per scene rendered with the cast (today: rendered once, never compared); VRGDG's location-reference slot on export | **the loop**: directions at once, pick, refine; a per-scene look record; the continuity check of the cast inside the scene; location references |
+| 6 Export | the bridge, cast-aware: model, seed, references per shot family, both prompts, stills, music with beats | a skill with a checkpoint around it; session bootstrap still manual (HANDOFF trap) |
+| 7 Render | the Builder | — |
+| 8 Import | the bridge | a skill with a checkpoint around it |
+| 9 Dailies | `visual_qa`, `composition_validator`, ArcFace + CLIP — wired to nothing | **the loop** |
+| 10 Post | VRGDG's LUT / grain / face-fix / enhance / stitch routes (L4) | everything on our side |
 
-The plumbing between 3 → 5 → 6 → 7 is proven as of today (round trip in
-progress; the export half verified live). What is missing is almost entirely
-*skills and gates* — the layer that makes the steps visible and steerable.
+The plumbing between 4 → 6 → 7 → 8 is proven — the round trip closed on
+2026-08-24, both directions verified live. What is missing is almost entirely
+*skills and gates* — the layer that makes the steps visible and steerable —
+plus the whole of step 3, which nothing has ever owned.
+
+**The score is now step 3** and nothing behind it is built. No artifact schema
+has a word for a song, a beat grid or a lyric, while VRGDG's Builder is built
+on all three. That is WP6.
 
 ---
 
@@ -295,9 +307,9 @@ touch segments with videos unless told).
 **Also in this WP** (small, each a HANDOFF trap or a #32 leftover):
 `ConceptPrompts.txt` / `I2VMotionNotes.txt` synced on export; per-scene
 `i2v_video_settings` (an orbit needs different settings than a static shot);
-the session-bootstrap route so step 4 needs no click in the Builder.
+the session-bootstrap route so step 6 needs no click in the Builder.
 
-**Done when.** A film runs all nine steps through checkpoints, every gate
+**Done when.** A film runs all ten steps through checkpoints, every gate
 stops, a send-back at dailies re-exports one scene, and the whole run replays
 on the board.
 
@@ -305,7 +317,7 @@ on the board.
 
 **What.** Grow the read-only board into the Wizard-style dashboard.
 
-- **A stepper rail** (the nine steps) with state chips: waiting / running /
+- **A stepper rail** (the ten steps) with state chips: waiting / running /
   awaiting you / approved / sent back. Backlot already derives these from
   checkpoints; the rail is a layout change.
 - **A panel per step**: the artifact rendered readably (brief as a page, plan
@@ -364,6 +376,159 @@ overwrites a working recipe without a measured win and an approval.
 **Done when.** One bundled workflow is improved on a stated axis with a
 measured, recorded, reproducible recipe, chosen by you from a contact sheet.
 
+### WP6 — the score: audio, beats and lyrics
+
+The one part of the film nothing in this plan owns yet. VRGDG's Builder is a
+**Music Video** Builder — its timeline is a beat grid and it carries a complete
+lyric system. OpenMontage can *generate* a song with lyrics locally, and can
+mix, duck and burn karaoke captions. The two meet today at a single file path,
+and everything that makes a track a *score* rather than a *file* is dropped in
+between.
+
+#### What each side actually has
+
+| Concern | OpenMontage | VRGDG | Who should own it |
+|---|---|---|---|
+| Make the track | 5 `music_generation` tools; `comfyui_music` is local (ACE-Step 1.5 Turbo) and **takes lyrics**, structure tags, BPM, key | none — it consumes a track | **OM** (already true) |
+| Write the lyrics | nothing. `lyric` appears in **no schema** | nothing — it holds them, it does not author them | **OM** — this is the taste layer |
+| Measure the beat | `audio_energy` (RMS only, no beats); the `music-to-video` skill's librosa `analyze-beatgrid.py` is rich but **skill-only, not a registered tool** | `analyze_audio` gives `beat_markers`, `detected_tempo_bpm`, `audio_peaks` — already measured, already on this machine | **VRGDG measures, OM records** |
+| Hold the lyrics | — | per segment: `lyric_text`, `lyric_section`, `lyric_singers`, `lyric_performance_mode` (`together` or `cue_map`), and `lyric_cue_map` — typed cues carrying `text`, `type` (vocal/instrumental), `start`, `end`, `singer_id`, `singer_name`, `action_note` | **VRGDG holds, OM authors** |
+| Say who sings | `cast_record`, ArcFace-calibrated | `lyric_cue_map.singer_id` resolves against the **same `flux_reference_builder` subjects** the casting export already writes | **the match — see below** |
+| Time the words | `transcriber` (whisper, word-level) — **UNAVAILABLE here**, `faster_whisper` is not installed | `build_timestamped_transcribe_prompt`, described in its own route registry as *"timestamped lyric transcription to SRT"* | **VRGDG unblocks OM** |
+| Show the words | `subtitle_gen` already has `word_by_word` and `karaoke` styles | `srt_mode`, `show_timeline_lyric_notes` | **OM renders, VRGDG times** |
+| Mix and duck | `audio_mixer`: `mix` / `duck` / `full_mix` / `segmented_music` | none | **OM**, after import |
+| Stems | the `acestep` skill documents ACE-Step's `extract` (vocals/drums/bass/…); `comfyui_music` **does not expose it** | none | **OM** — a real gap |
+| Lip sync | none | MiniMax-H3 and HuMo, both **dark on this machine** (below) | blocked, needs a decision |
+
+**The match, in one line: VRGDG owns the clock, OpenMontage owns the meaning.**
+VRGDG can say *when* — to the beat, to the word. It has no opinion about what
+the song is about or who should be singing it. That is exactly the half
+OpenMontage is built for, and exactly the half currently thrown away.
+
+**The single best seam is `lyric_cue_map.singer_id`.** It resolves against
+`flux_reference_builder` subjects — the same subject records the casting
+export already writes for reference images (DECISIONS #30, #32). So a cast
+character can be made *the singer of a line* with no new identity mechanism at
+all. Everything already built for casting carries straight over.
+
+#### What is broken or dropped today
+
+Five concrete losses, each verified this session:
+
+1. **The beat grid never comes home.** Export *writes* `beat_markers` into the
+   session (19 of them, measured by VRGDG). Import reads back only the scalar
+   `detected_tempo_bpm`. The grid — the thing L3 "audio-first timing" is
+   entirely about — is dropped at the door.
+2. **There is no vocabulary for a song.** No schema in `schemas/` carries
+   lyrics, tempo, beats or sections. "Beat" in `scene_plan` always means
+   *story* beat (`emotional_beat`, `story_beat`), never *musical* beat. Two
+   different things wearing one word is how this stays confusing.
+3. **`video_compose`'s FFmpeg path ignores `audio.music.asset_id`.** Only
+   `hyperframes_compose` resolves it (`hyperframes_compose.py:1078`). The
+   music contract is not uniform across runtimes; today the caller must
+   resolve it by hand.
+4. **`compose_target` cannot set fps.** Resolution is overridable; frame rate
+   is hardcoded to 30 (`video_compose.py`, `fps=30` and `-r 30`). The LTX
+   clips are native 24. For a beat-synced film, resampling 24 to 30 at compose
+   time is a correctness bug, not a cosmetic one — it is precisely where sync
+   drifts.
+5. **The ask is not the measurement.** ACE-Step was asked for 90 BPM and
+   VRGDG measured 117.5 in the delivered track (PROGRESS). Anything that plans
+   cuts from the *requested* tempo is wrong by 30%.
+
+#### What to build
+
+**Tools** — registered `BaseTool`s, per the constitution:
+
+- **`audio_beatmap`** — the one beat analyzer, producing a canonical
+  `beat_map` artifact: tempo, beat times, downbeats, phrases, sections,
+  energy. Backed by VRGDG's `analyze_audio` (already measured, already on this
+  machine, already trusted by the Builder), with librosa as the offline
+  alternative. The `music-to-video` skill's rule is the right one and should
+  be inherited whole: *one analyzer, and you trust it* — never re-measure
+  beats by ear or with a second tool.
+- **`lyric_align`** — timestamped lyric alignment, routed through VRGDG's
+  `timestamped_transcribe` build route. This unblocks a capability
+  `transcriber` cannot provide here, using a graph source that already works.
+- **`audio_stems`** — or an `operation` on `comfyui_music`. Isolated vocals
+  are what make ducking honest and word alignment accurate.
+
+**Schema** — the missing vocabulary:
+
+- A **`song` artifact**: title, style, the lyrics as sections then lines, and
+  per line an optional time range and singer. Authored at the brief; the thing
+  you approve before a note is generated.
+- A **`beat_map` artifact**: what `audio_beatmap` produces. Referenced from
+  `scene_plan.metadata`, so a scene can declare `beat_snapped: true` and mean
+  it.
+- Rename nothing, but **say which beat you mean.** `story_beat` stays;
+  musical beats live only in `beat_map`.
+
+**Bridge** — `lib/vrgdg_bridge.py`:
+
+- Import reads `beat_markers` back into the `beat_map` artifact — closing loss 1.
+- Export writes `lyric_text`, `lyric_section`, `lyric_singers`,
+  `lyric_performance_mode` and `lyric_cue_map` per segment, from the `song`
+  artifact plus the `cast_record`. Singers resolve to cast subjects by id.
+- Import reads those fields back, so lyric edits made by hand in the Builder
+  survive the trip — the same rule the timeline already follows.
+
+**Lab** — WP5, extended to audio:
+
+- The Lab generalizes the screen test from *which model* to *which graph*.
+  ACE-Step is a graph, and it has the same unmeasured knobs: steps, cfg,
+  `cfg_scale`, temperature, and the **BPM ask-vs-measure gap** above. That gap
+  is a calibration question with a number at the end of it — exactly the Lab's
+  shape.
+- A **beat-adherence axis**: does a cut land on a beat, and within how many
+  milliseconds? Measurable, currently unmeasured. Per DECISIONS #27 it must be
+  calibrated against renders from this machine or shipped marked NOT
+  CALIBRATED with the population it needs — four guessed bands have been
+  checked here and four were wrong.
+
+#### Where it goes — decided 2026-08-24
+
+The track has to exist **before the scene plan**, or scene boundaries cannot
+land on beats. Casting does not depend on it. **Raul chose the new step**, and
+the renumbering is done: §1 above, `WORKFLOW.md` and
+`pipeline_defs/vrgdg-character-film.yaml` (ten stages, nine gated, validates
+and loads) all carry ten steps as of this date. The rejected alternative was
+folding the score into the Brief step — it keeps nine steps but gives the
+track no gate of its own, which for a music video is the wrong trade.
+
+**Score is the fourth loop**: agree the song and the lyrics, generate, listen,
+change a line or the style, generate again — the same narrow-then-pick shape
+as casting and scene look, with your ear instead of your eye. It ends with a
+locked track, a `beat_map`, and a `song` artifact whose lines have times.
+
+The manifest stage is in place and gated. What is not written is the
+`production/score` skill behind it, the two artifact schemas, and the bridge
+work — the rest of this WP.
+
+#### Lip sync — out of scope, decided 2026-08-24
+
+**Raul chose to skip it.** MiniMax-H3's weight is on disk at **0.12 MB** — a
+failed download, not a model — and HuMo's nodes are installed with its models
+absent entirely. Together they are the difference between *a character in a
+music video* and *a character singing the song*, and restoring them means the
+~40 GB opt-in group. A character will appear in the film without mouthing the
+words.
+
+This does **not** remove the lyric work. Lyrics still cross the seam, still
+carry a singer per line, and still drive karaoke burn-in — they simply do not
+drive a mouth. If that changes, the two models go into
+`Install-VRGDGModels.ps1` next to the MSR LoRAs, and nothing else in this WP
+has to move.
+
+**GPU.** Yes for generation (ACE-Step: 30 s for a 9 s track locally) and for
+the Lab sweeps. No for the bridge, schema and analysis work.
+
+**Done when.** A song is written and generated in conversation; its beat map
+lands in the scene plan; scene boundaries fall on beats; the lyrics reach the
+Builder timeline with the cast character named as the singer of each line; and
+after import the cut carries the same words back with times, ready for a
+karaoke burn.
+
 ---
 
 ## 5. Order, dependencies, and what each needs
@@ -376,6 +541,8 @@ measured, recorded, reproducible recipe, chosen by you from a contact sheet.
    └─► WP3 skills + pipeline ───► needs the round trip closed (import)
            └─► WP4 cockpit ─────► needs WP3's checkpoints to exist
    └─► WP5 lab ──────────────────► needs GPU; independent of WP3/WP4
+   └─► WP6 score ────────────────► schema + bridge now; the loop needs GPU
+         └─► feeds WP3 (a Score gate) and WP5 (audio graphs in the Lab)
 ```
 
 | WP | Prerequisite | GPU | Rough size |
@@ -387,6 +554,7 @@ measured, recorded, reproducible recipe, chosen by you from a contact sheet.
 | WP3 | WP1, round trip closed | little (import, dailies analysis) | two sessions |
 | WP4 | WP3 | no | two sessions |
 | WP5 | WP1 | yes | two sessions |
+| WP6 | WP1 (renumber done) | yes for the score loop, no for schema/bridge | two sessions |
 
 **Now, during the render:** WP1 in full, and the *design* of WP2 (the
 reaction vocabulary, the session file, the round planner) so that the moment
@@ -415,6 +583,9 @@ back") hid a false assumption for days.
   board replays the run.
 - WP4: a round started from the board, result on the board, no terminal.
 - WP5: a measured, recorded improvement to one workflow, chosen by you.
+- WP6: a song written and generated in conversation; scene boundaries land on
+  measured beats, not on the requested BPM; the cast character is named as the
+  singer of a line in the Builder, and those words come back on import.
 
 ---
 
@@ -433,6 +604,10 @@ back") hid a false assumption for days.
   round trip.
 - **Locations and props** deserve casting too (IDEAS #1). Out of scope until a
   character casts cleanly.
+- ~~**The step renumber** (WP6)~~ **decided 2026-08-24**: Score is step 3, the
+  film has ten steps, and §1, `WORKFLOW.md` and the manifest all carry it.
+- ~~**Lip sync**~~ **decided 2026-08-24**: out of scope. The models stay
+  unfetched; lyrics still cross the seam, they just do not drive a mouth.
 
 ---
 

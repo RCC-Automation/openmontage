@@ -2,11 +2,12 @@ name: vrgdg-character-film
 version: "1.0"
 description: >
   A character-led short film rendered locally through ComfyUI and VRGDG's Music Video
-  Builder. Nine steps: the character is cast before anything is shot, every scene's look
-  is chosen from alternatives before it is locked, the plan opens in the Builder as a
-  finished timeline, the human renders by eye, and the footage comes back measured
-  against the cast. Three of the nine are loops - casting, scene look, dailies - because
-  that is where the quality comes from.
+  Builder. Ten steps: the character is cast before anything is shot, the score is
+  written and measured before a single shot is planned, every scene's look is chosen
+  from alternatives before it is locked, the plan opens in the Builder as a finished
+  timeline, the human renders by eye, and the footage comes back measured against the
+  cast. Four of the ten are loops - casting, score, scene look, dailies - because that
+  is where the quality comes from.
 category: cinematic
 stability: beta
 default_checkpoint_policy: guided
@@ -36,6 +37,7 @@ extensions:
 required_skills:
   - production/brief
   - production/casting
+  - production/score
   - production/scene-plan
   - production/scene-look
   - production/export
@@ -90,11 +92,38 @@ stages:
       - Every round kept in casting history with its reaction
 
   # 3 -----------------------------------------------------------------------
+  - name: score
+    skill: production/score
+    required_artifacts_in:
+      - brief
+    produces:
+      - song
+      - beat_map
+    preferred_tools:
+      - comfyui_music
+    optional_tools:
+      - music_library
+      - audio_beatmap
+      - lyric_align
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - The human heard the track and approved it before any shot was planned
+      - The beat map was measured from the delivered audio, never from the requested BPM
+      - Lyrics carry sections and, where they matter, a singer per line
+      - Every singer named resolves to a cast record subject
+    success_criteria:
+      - A schema-valid song artifact whose lines carry times
+      - A beat_map measured from the delivered track, with its tempo recorded
+      - The measured tempo recorded even when it disagrees with what was asked for
+
+  # 4 -----------------------------------------------------------------------
   - name: scene_plan
     skill: production/scene-plan
     required_artifacts_in:
       - brief
       - cast_record
+      - beat_map
     produces:
       - scene_plan
     tools_available: []
@@ -103,12 +132,12 @@ stages:
     review_focus:
       - Every scene description re-states the character; none says "the same X"
       - Shot sizes map to the shot families the cast record has references for
-      - Durations respect the measured tempo when the film has music
+      - Scene boundaries land on beats from the beat_map, not on a requested tempo
     success_criteria:
       - Schema-valid scene_plan artifact
       - No cross-scene reference in any description (DECISIONS #33)
 
-  # 4 -----------------------------------------------------------------------
+  # 5 -----------------------------------------------------------------------
   - name: scene_look
     skill: production/scene-look
     required_artifacts_in:
@@ -131,7 +160,7 @@ stages:
       - A look record per scene - direction, prompt, seed, model, references
       - Cast identity measured in every hero still
 
-  # 5 -----------------------------------------------------------------------
+  # 6 -----------------------------------------------------------------------
   - name: export
     skill: production/export
     required_artifacts_in:
@@ -150,7 +179,7 @@ stages:
       - Export reports every scene written and every still pushed
       - The human confirms the Builder shows the timeline after a reload
 
-  # 6 -----------------------------------------------------------------------
+  # 7 -----------------------------------------------------------------------
   - name: render
     skill: production/render
     required_artifacts_in:
@@ -164,7 +193,7 @@ stages:
     success_criteria:
       - Every scene has a clip in the Builder, or a stated reason it does not
 
-  # 7 -----------------------------------------------------------------------
+  # 8 -----------------------------------------------------------------------
   - name: import
     skill: production/import
     preferred_tools:
@@ -181,7 +210,7 @@ stages:
       - Every exported scene id present in the imported manifest
       - Cut boundaries match the Builder timeline
 
-  # 8 -----------------------------------------------------------------------
+  # 9 -----------------------------------------------------------------------
   - name: dailies
     skill: production/dailies
     required_artifacts_in:
@@ -203,7 +232,7 @@ stages:
       - A per-clip verdict with reasons
       - Any re-shoot names specific scene ids
 
-  # 9 -----------------------------------------------------------------------
+  # 10 -----------------------------------------------------------------------
   - name: post
     skill: production/post
     required_artifacts_in:

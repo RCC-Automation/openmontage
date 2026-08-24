@@ -22,6 +22,8 @@ from lib.vrgdg_bridge import (
     segment_prompt,
     segment_video_path,
     session_summary,
+    MUSIC_ASSET_ID,
+    music_asset_id,
     session_to_asset_manifest,
     session_to_edit_decisions,
     timeline_segments,
@@ -35,7 +37,7 @@ from schemas.artifacts import validate_artifact
 
 @pytest.fixture
 def project_dir(tmp_path: Path) -> Path:
-    for sub in ("artifacts", "assets/images", "assets/video", "assets/audio"):
+    for sub in ("artifacts", "assets/images", "assets/video", "assets/audio", "assets/music"):
         (tmp_path / sub).mkdir(parents=True, exist_ok=True)
     return tmp_path
 
@@ -54,6 +56,12 @@ def vrgdg_media(tmp_path: Path) -> dict[str, Path]:
         vid.write_bytes(b"\x00\x00\x00\x18ftypmp42" + b"0" * 64)
         made[f"image_{n}"] = img
         made[f"video_{n}"] = vid
+    # A real project has its music on disk - the session's audio_path is a file,
+    # not a name. Leaving it absent is what let a dangling music reference ship.
+    audio = folder / "project_audio" / "project_audio.wav"
+    audio.parent.mkdir(parents=True, exist_ok=True)
+    audio.write_bytes(b"RIFF" + b"0" * 64)
+    made["audio"] = audio
     made["folder"] = folder
     return made
 
@@ -211,7 +219,7 @@ def test_manifest_validates_against_the_real_schema(project_dir, vrgdg_media):
     )
     validate_artifact("asset_manifest", manifest)
     assert warnings == []
-    assert len(manifest["assets"]) == 4  # 2 scenes x (image + video)
+    assert len(manifest["assets"]) == 5  # 2 scenes x (image + video), + the music bed
 
 
 def test_manifest_paths_are_project_relative(project_dir, vrgdg_media):
@@ -240,7 +248,7 @@ def test_a_missing_file_warns_instead_of_failing(project_dir, vrgdg_media):
     )
     validate_artifact("asset_manifest", manifest)
     assert any("missing on disk" in w for w in warnings)
-    assert len(manifest["assets"]) == 3
+    assert len(manifest["assets"]) == 4  # 2 images + 1 surviving video + the music bed
 
 
 def test_copy_is_skipped_when_the_target_is_already_current(project_dir, vrgdg_media):
@@ -267,7 +275,9 @@ def test_manifest_records_the_prompt_and_duration(project_dir, vrgdg_media):
 # ---------------------------------------------------------------------------
 
 def test_edit_decisions_validate_against_the_real_schema(vrgdg_media):
-    cut, warnings = session_to_edit_decisions(_session(vrgdg_media), scene_map=SceneMap())
+    cut, warnings = session_to_edit_decisions(
+        _session(vrgdg_media), scene_map=SceneMap(), music_asset_id=MUSIC_ASSET_ID
+    )
     validate_artifact("edit_decisions", cut)
     assert warnings == []
     assert [c["id"] for c in cut["cuts"]] == ["sc1", "sc2"]
@@ -298,6 +308,88 @@ def test_a_zero_length_segment_is_rejected_from_the_cut(vrgdg_media):
 def test_tempo_is_carried_into_metadata(vrgdg_media):
     cut, _ = session_to_edit_decisions(_session(vrgdg_media), scene_map=SceneMap())
     assert cut["metadata"]["detected_tempo_bpm"] == 122.0
+
+
+# ---------------------------------------------------------------------------
+# music: the track has to reach the cut, and it can only do that by manifest id
+# ---------------------------------------------------------------------------
+
+def test_the_timeline_audio_becomes_a_manifest_asset(project_dir, vrgdg_media):
+    manifest, warnings = session_to_asset_manifest(
+        _session(vrgdg_media), project_dir=project_dir, scene_map=SceneMap()
+    )
+    music = [a for a in manifest["assets"] if a["type"] == "music"]
+    assert len(music) == 1
+    assert music[0]["id"] == MUSIC_ASSET_ID
+    assert music[0]["scene_id"] == "global"
+    assert music[0]["duration_seconds"] == 12.0
+    assert warnings == []
+
+
+def test_the_music_track_is_copied_into_the_project(project_dir, vrgdg_media):
+    manifest, _ = session_to_asset_manifest(
+        _session(vrgdg_media), project_dir=project_dir, scene_map=SceneMap()
+    )
+    music = next(a for a in manifest["assets"] if a["type"] == "music")
+    assert music["path"] == "assets/music/project_audio.wav"
+    assert (project_dir / music["path"]).is_file()
+
+
+def test_the_cut_references_music_by_id_not_by_path(vrgdg_media):
+    """The regression this suite missed: a bare filename resolves against nothing.
+
+    hyperframes_compose looks up audio.music.asset_id in the manifest. A
+    top-level music.source carrying only a filename is read by no one, so the
+    composed video came out silent with nothing reporting why.
+    """
+    cut, _ = session_to_edit_decisions(
+        _session(vrgdg_media), scene_map=SceneMap(), music_asset_id=MUSIC_ASSET_ID
+    )
+    assert cut["audio"]["music"]["asset_id"] == MUSIC_ASSET_ID
+    assert "source" not in cut.get("music", {})
+
+
+def test_the_manifest_id_the_cut_points_at_actually_exists(project_dir, vrgdg_media):
+    """The two artifacts must agree - that is the whole point of the id."""
+    manifest, _ = session_to_asset_manifest(
+        _session(vrgdg_media), project_dir=project_dir, scene_map=SceneMap()
+    )
+    cut, _ = session_to_edit_decisions(
+        _session(vrgdg_media),
+        scene_map=SceneMap(),
+        music_asset_id=music_asset_id(manifest),
+    )
+    referenced = cut["audio"]["music"]["asset_id"]
+    assert referenced in {a["id"] for a in manifest["assets"]}
+
+
+def test_a_cut_built_without_the_manifest_id_warns_that_it_will_be_silent(vrgdg_media):
+    cut, warnings = session_to_edit_decisions(_session(vrgdg_media), scene_map=SceneMap())
+    assert "audio" not in cut
+    assert any("will be silent" in w for w in warnings)
+
+
+def test_a_missing_music_file_warns_rather_than_dangling(project_dir, vrgdg_media):
+    session = _session(vrgdg_media)
+    session["audio_path"] = r"C:\gone\project_audio.mp3"
+    manifest, warnings = session_to_asset_manifest(
+        session, project_dir=project_dir, scene_map=SceneMap()
+    )
+    assert music_asset_id(manifest) is None
+    assert any("audio track is missing on disk" in w for w in warnings)
+
+
+def test_a_project_with_no_audio_writes_no_music_block(vrgdg_media):
+    session = _session(vrgdg_media)
+    session["audio_path"] = ""
+    cut, warnings = session_to_edit_decisions(session, scene_map=SceneMap())
+    validate_artifact("edit_decisions", cut)
+    assert "audio" not in cut
+    assert not any("silent" in w for w in warnings)
+
+
+def test_music_id_lookup_is_none_when_there_is_no_track():
+    assert music_asset_id({"version": "1.0", "assets": []}) is None
 
 
 def test_render_runtime_is_required_and_passed_through(vrgdg_media):

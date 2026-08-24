@@ -104,7 +104,7 @@ route is dark, and the session's default `video_engine` is `"ltx"`.
 python -m pytest tests/contracts/test_vrgdg_tools.py tests/contracts/test_vrgdg_bridge.py -q
 ```
 
-Expect **111 passed** (45 + 66) as of 2026-08-24. That number is a copy, and
+Expect **130 passed** (45 + 85) as of 2026-08-24. That number is a copy, and
 copies rot — the Tests table in `PROGRESS.md` is the source of truth when the two
 disagree, and this line is what should be corrected (DECISIONS.md #22). A failure
 here is a finding, not a nuisance — you have just learned something changed

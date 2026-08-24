@@ -42,6 +42,7 @@ from lib.vrgdg_bridge import (
     VRGDGBridgeError,
     apply_scene_plan_to_session,
     approved_images_by_scene,
+    music_asset_id,
     scene_plan_duration,
     scene_plan_to_srt,
     session_summary,
@@ -230,7 +231,7 @@ class VRGDGProjectSync(BaseTool):
     retry_policy = RetryPolicy(max_retries=0, retryable_errors=[])
     idempotency_key_fields = ["operation", "project_folder", "project_dir"]
     side_effects = [
-        "import: copies stills and clips into <project_dir>/assets/",
+        "import: copies stills, clips and the music track into <project_dir>/assets/",
         "import: writes artifacts/asset_manifest.json, artifacts/edit_decisions.json "
         "and artifacts/vrgdg_scene_map.json",
         "export: creates a VRGDG project and replaces its timeline",
@@ -323,6 +324,7 @@ class VRGDGProjectSync(BaseTool):
             session,
             scene_map=scene_map,
             render_runtime=str(inputs.get("render_runtime", "ffmpeg")),
+            music_asset_id=music_asset_id(manifest),
         )
 
         written: list[str] = []

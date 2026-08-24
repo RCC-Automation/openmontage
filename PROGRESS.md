@@ -268,27 +268,30 @@ online, so their totals are not comparable), `casting/{kleinprobe,sdxlprobe,zpro
 
 ## The production workflow ✅ WP1 shipped, the rest planned
 
-`PLAN.md` is the plan Raul asked for before any build: the workflow as **nine
-steps**, five work packages, order, GPU needs and how each is verified live.
+`PLAN.md` is the plan Raul asked for before any build: the workflow as **ten
+steps**, six work packages, order, GPU needs and how each is verified live.
 `WORKFLOW.md` is the manual — the overview he asked for, then a page per step
 (how to start it in plain words, what lands, how to review, how to change it,
 and the traps that bite at that step).
 
-```
-1 Brief ─► 2 Casting ─► 3 Scene plan ─► 4 Scene look ─► 5 Export ─► 6 Render ─► 7 Import ─► 8 Dailies ─► 9 Post
-  agree     LOOP          write          LOOP            hand over    YOU         collect     LOOP          finish
-```
+Four loops — casting, score, scene look, dailies. **Scene look was the gap
+Raul found**: casting says who she is, the scene plan says what happens, and
+nothing decided what each scene *looks like* before it was locked. It is now
+step 5, on the same instrument as casting, producing a hero still per scene.
+**Score was the second gap** (2026-08-24): nothing owned the song, the beat
+grid or the lyrics, while VRGDG's Builder is built on all three. It is now
+step 3, before the scene plan, so cuts land on measured beats — WP6.
 
-Three loops — casting, scene look, dailies. **Scene look was the gap Raul
-found**: casting says who she is, the scene plan says what happens, and nothing
-decided what each scene *looks like* before it was locked. It is now step 4, on
-the same instrument as casting, producing a hero still per scene.
+```
+1 Brief ─► 2 Casting ─► 3 Score ─► 4 Scene plan ─► 5 Scene look ─► 6 Export ─► 7 Render ─► 8 Import ─► 9 Dailies ─► 10 Post
+  agree     LOOP         LOOP        write           LOOP            hand over    YOU         collect     LOOP          finish
+```
 
 | Shipped | |
 |---|---|
 | `PLAN.md` | the plan: overview, per-step inventory, WP1–WP5, order, risks |
 | `WORKFLOW.md` | the manual, with the status table of what actually works |
-| `pipeline_defs/vrgdg-character-film.yaml` | nine stages, eight gated, validates and loads; **not yet runnable** — the stage skills are unwritten. Backlot draws the rail from it |
+| `pipeline_defs/vrgdg-character-film.yaml` | **ten stages, nine gated** (score added 2026-08-24), validates and loads; **not yet runnable** — the stage skills are unwritten. Backlot draws the rail from it |
 
 Decided along the way: standalone skills a pipeline strings together (not
 pipeline-only stages); Backlot grown into the Wizard-style cockpit rather than
@@ -411,7 +414,8 @@ trusted until reconciled.
    like #3, warmer, keep the collar" into the next round. Needs the GPU, so it
    follows the render.
 3. **Then `PLAN.md`**, in its order: ~~WP1 `WORKFLOW.md`~~ **done 2026-08-24**
-   (plus `pipeline_defs/vrgdg-character-film.yaml`, nine stages, eight gated), WP2 the interactive casting skill, WP3 production skills and the
+   (plus `pipeline_defs/vrgdg-character-film.yaml`, now ten stages, nine
+   gated), WP2 the interactive casting skill, WP3 production skills and the
    `vrgdg-character-film` pipeline, WP4 Backlot as the cockpit, WP5 the ComfyUI
    Lab. L3's second half and L4 fold into WP3/WP5.
 

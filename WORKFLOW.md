@@ -10,30 +10,36 @@ Pipeline: `pipeline_defs/vrgdg-character-film.yaml`.
 
 ## Overview
 
-Nine steps. Each one has a single owner, produces one thing you can look at,
+Ten steps. Each one has a single owner, produces one thing you can look at,
 and stops for you before the next begins.
 
 ```
-1 Brief ─► 2 Casting ─► 3 Scene plan ─► 4 Scene look ─► 5 Export ─► 6 Render ─► 7 Import ─► 8 Dailies ─► 9 Post
-  agree     LOOP          write          LOOP            hand over    YOU         collect     LOOP          finish
-            who is she?                  what does                    press                   does it
-                                         it look like?                render                  hold?
+1 Brief ─► 2 Casting ─► 3 Score ─► 4 Scene plan ─► 5 Scene look ─► 6 Export ─► 7 Render ─► 8 Import ─► 9 Dailies ─► 10 Post
+  agree     LOOP         LOOP        write           LOOP            hand over    YOU         collect     LOOP           finish
+            who is       what does               what does                        press                   does it
+            she look     it sound                it look like?                    render                  hold?
+            like?        like?
 ```
 
 | # | Step | In one line | Who does it | You get |
 |---|---|---|---|---|
 | 1 | **Brief** | Agree what the film is | you + agent | a one-page brief |
 | 2 | **Casting** | Find the character | agent renders, **you pick** | contact sheets → a cast record |
-| 3 | **Scene plan** | Write the shots | agent | the plan, scene by scene |
-| 4 | **Scene look** | Find each scene's look | agent renders, **you pick** | contact sheets → a hero still per scene |
-| 5 | **Export** | Fill the Builder timeline | agent | a ready-to-render VRGDG project |
-| 6 | **Render** | Make the clips | **you**, in the Builder | the footage |
-| 7 | **Import** | Bring it back | agent | the manifest and the cut |
-| 8 | **Dailies** | Check the footage | agent flags, **you decide** | a report: what looks wrong, why |
-| 9 | **Post** | Colour, grain, stitch | agent | the final film |
+| 3 | **Score** | Write and make the song | agent makes, **you listen** | a track, its lyrics, its measured beat grid |
+| 4 | **Scene plan** | Write the shots, on the beat | agent | the plan, scene by scene |
+| 5 | **Scene look** | Find each scene's look | agent renders, **you pick** | contact sheets → a hero still per scene |
+| 6 | **Export** | Fill the Builder timeline | agent | a ready-to-render VRGDG project |
+| 7 | **Render** | Make the clips | **you**, in the Builder | the footage |
+| 8 | **Import** | Bring it back | agent | the manifest and the cut |
+| 9 | **Dailies** | Check the footage | agent flags, **you decide** | a report: what looks wrong, why |
+| 10 | **Post** | Colour, grain, stitch | agent | the final film |
 
-**Three of them are loops** — 2, 4 and 8. They repeat until you say stop. The
+**Four of them are loops** — 2, 3, 5 and 9. They repeat until you say stop. The
 other six run once and pass on.
+
+**The song comes before the shots on purpose.** In a music video the track
+decides when to cut. Written first, the shot boundaries land on real beats
+because they were planned that way — not nudged into place afterwards.
 
 **Two rules hold everywhere:**
 
@@ -116,7 +122,62 @@ Needs the GPU.
 
 ---
 
-## 3. Scene plan — write the shots
+## 3. Score — write and make the song *(loop)*
+
+**Say:** *"let's do the song"*
+
+The track comes before the shots because in a music video the track decides
+when to cut. Write it first and the scene boundaries land on real beats
+because they were planned that way, instead of being nudged into place after
+everything else is locked.
+
+Like casting, this is a conversation:
+
+```
+round 1   agree the song: what it is about, the style, the lyrics   → words on a page
+          you react:  "second verse is too wordy, make it darker"
+round 2   generate it locally (ACE-Step)                            → a track to play
+          you react:  "slower, and lose the vocal in the intro"
+round 3   generate again                                            → a track to play
+          you say:    "that's it"                                   → score locked
+```
+
+**You get, each round:** the lyrics to read and the track to play. Once you
+approve one, it is measured — tempo, beat positions, sections — and that
+measurement, not what we asked for, is what the rest of the film is timed to.
+
+**Why the measurement matters:** the generator was asked for 90 BPM on this
+machine and delivered **117.5**. Anything planned from the number we requested
+would have been out by 30% — every cut in the wrong place, for a reason
+nothing would have reported.
+
+**What you end up with:**
+
+| | |
+|---|---|
+| the track | an audio file, in the project |
+| the song | the lyrics, in sections, each line with a time and (optionally) who sings it |
+| the beat map | measured tempo, beat positions, sections — what the scene plan cuts to |
+
+**Who sings what.** If the film has more than one character, a line can be
+assigned to one of them. The singers are the same characters you cast in step
+2 — no separate casting, no second identity system. The Builder understands
+this natively.
+
+**Change it:** rewrite a line and regenerate, change the style, ask for
+another take on the same lyrics, or bring your own track instead — dropping a
+file in skips generation entirely and goes straight to measuring it.
+
+**Status:** **not built.** The pieces exist and are proven — local generation
+with lyrics (`comfyui_music`, ACE-Step 1.5 Turbo, about 30 s for a 9-second
+track), and VRGDG's beat analysis, which already runs on export and produced
+the 117.5 above. What is missing is the loop, the `song` and `beat_map`
+artifacts, and carrying lyrics across into the Builder. That is **WP6** in
+`PLAN.md`. Needs the GPU for generation.
+
+---
+
+## 4. Scene plan — write the shots
 
 **Say:** *"write the scene plan"*
 
@@ -137,7 +198,7 @@ validates it against the schema.
 
 ---
 
-## 4. Scene look — find each scene's look *(loop)*
+## 5. Scene look — find each scene's look *(loop)*
 
 **Say:** *"show me looks for scene 2"* — or let it run for the whole plan.
 
@@ -169,7 +230,7 @@ with `comfyui_image` and nothing is compared. Needs the GPU.
 
 ---
 
-## 5. Export — fill the Builder timeline
+## 6. Export — fill the Builder timeline
 
 **Say:** *"export it"*
 
@@ -205,7 +266,7 @@ prompts and audio.
 
 ---
 
-## 6. Render — make the clips
+## 7. Render — make the clips
 
 **In the Builder:** select a scene → **Create Scene Video**. Or **Render All**.
 
@@ -228,7 +289,7 @@ cannot have it.
 
 ---
 
-## 7. Import — bring it back
+## 8. Import — bring it back
 
 **Say:** *"import it"*
 
@@ -243,7 +304,7 @@ render).
 
 ---
 
-## 8. Dailies — check the footage *(loop)*
+## 9. Dailies — check the footage *(loop)*
 
 **Say:** *"run dailies"*
 
@@ -262,7 +323,7 @@ existing project. Scenes with finished videos are not touched unless you say so.
 
 ---
 
-## 9. Post — colour, grain, stitch
+## 10. Post — colour, grain, stitch
 
 **Say:** *"finish it"*
 
@@ -301,13 +362,14 @@ made for.
 |---|---|
 | 1 Brief | conversational; skill not written |
 | 2 Casting | instrument built + calibrated; **loop skill not written** |
-| 3 Scene plan | written directly, schema-validated; skill not written |
-| 4 Scene look | **not built** — one still per scene, nothing compared |
-| 5 Export | **built, verified live** — cast, references, stills, prompts, audio |
-| 6 Render | works (VRGDG) |
-| 7 Import | built, not yet run live |
-| 8 Dailies | **not built** — parts exist, wired to nothing |
-| 9 Post | not built |
+| 3 Score | **not built** — local generation and beat analysis both proven; the loop and the artifacts are WP6 |
+| 4 Scene plan | written directly, schema-validated; skill not written |
+| 5 Scene look | **not built** — one still per scene, nothing compared |
+| 6 Export | **built, verified live** — cast, references, stills, prompts, audio |
+| 7 Render | works (VRGDG) |
+| 8 Import | built, not yet run live |
+| 9 Dailies | **not built** — parts exist, wired to nothing |
+| 10 Post | not built |
 
 The plumbing is proven. What is missing is mostly the *skills and gates* —
 the layer that makes each step visible and steerable. `PLAN.md` sequences that
