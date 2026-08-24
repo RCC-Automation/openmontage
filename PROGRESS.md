@@ -17,7 +17,7 @@ commit invalidates its own HEAD line, and chasing it is how this file drifts.
 | **L0** | Custom workflows via node-ID binding profiles | OM → ComfyUI | ✅ shipped (pre-existing); SDXL checkpoint now swappable |
 | **L1** | VRGDG as the graph builder | OM → VRGDG | ✅ **committed** `cd915f0`, verified live |
 | **L2** | `scene_plan` ⇄ builder session | both | ✅ **committed** `1e78f71`, not yet run live |
-| **L3** | Audio-first timing (beats → scene boundaries) | VRGDG → OM | ⬜ not started |
+| **L3** | Audio-first timing (beats → scene boundaries) | VRGDG → OM | ◧ half-open: real audio + beats land on export (#34); beat-snapped read-back not started |
 | **L4** | Local post tier (LUT, grain, face fix, enhance) | VRGDG → OM | ⬜ not started |
 | **L5** | OpenMontage as VRGDG's prompt writer (LM Studio shim) | OM → VRGDG | ⬜ not started |
 | **L6** | One character bible + commissioned LoRA | both | ⬜ design only — ROCm blocker |
@@ -105,6 +105,15 @@ on the OpenMontage side through `comfyui_image` + the cast, and the push
 records each landed path in the session (`image` + `approved_image_path`) the
 way the Builder UI does. Verified live: both scenes in
 `VRGDG_Project_EndToEndTest` carry image, prompts, cast and reference.
+
+**Audio too (DECISIONS #34, extends #14):** export takes `audio_path`; the
+track runs through VRGDG's own `analyze_audio` and the session opens with the
+waveform, 19 beat markers and the measured tempo (117.5 BPM — ACE-Step was
+asked for 90; use the measured number). `comfyui_music` (local ACE-Step 1.5
+Turbo, 30 s for a 9 s track) is the local source. The wrinkle that cost the
+first attempt: `save_session` overrides the session's `audio_path` with a
+payload-top-level field on every save, and that field is also what makes
+VRGDG snapshot the track into the project. The client now sends it.
 
 **The first automated run caught real drift.** sc2's description said "The
 same clockwork heroine" — no image model can resolve that — and rendered a
@@ -261,18 +270,18 @@ online, so their totals are not comparable), `casting/{kleinprobe,sdxlprobe,zpro
 |---|---|
 | `test_model_registry.py` | 75 passed |
 | `test_screen_test.py` | 73 passed |
-| `test_vrgdg_tools.py` + `test_vrgdg_bridge.py` | 128 passed (clock-in baseline) |
+| `test_vrgdg_tools.py` + `test_vrgdg_bridge.py` | 130 passed (clock-in baseline) |
 | `test_vrgdg_tools.py` | 45 passed |
-| `test_vrgdg_bridge.py` | 83 passed |
+| `test_vrgdg_bridge.py` | 85 passed |
 | `test_render_clock.py` + `test_screen_test.py` | 94 passed |
-| full `tests/contracts` | **1196 passed, 8 skipped** — no failures |
+| full `tests/contracts` | **1198 passed, 8 skipped** — no failures |
 
 Artifacts are validated against the real `schemas/artifacts/*.schema.json`, not
 spot-checked — a manifest that does not validate fails much later, at
 checkpoint-write time, with a far worse error.
 
-Full `tests/contracts` now runs clean on this machine — **1196 passed, 8 skipped
-in 45 s**, re-verified 2026-08-24. The ~13 `google.genai` / mermaid-CLI failures
+Full `tests/contracts` now runs clean on this machine — **1198 passed, 8 skipped
+in 48 s**, re-verified 2026-08-24. The ~13 `google.genai` / mermaid-CLI failures
 noted previously do not appear here; expect them again on a bare environment
 without those installed.
 

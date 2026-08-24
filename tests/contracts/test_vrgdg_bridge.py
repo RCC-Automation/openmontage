@@ -711,8 +711,11 @@ class _FakeClient:
     def load_session(self, folder):
         return {"session": self.session}
 
-    def save_session(self, folder, session):
-        self.saved = session
+    def save_session(self, folder, session, audio_path=None):
+        # The real server overrides the session's audio_path with the payload
+        # field on every save - blanking it when absent.
+        self.saved = {**session, "audio_path": audio_path or ""}
+        self.saved_audio_path = audio_path
         return {"ok": True}
 
     def create_silent_audio(self, folder, duration, **kwargs):
@@ -726,6 +729,16 @@ class _FakeClient:
     def save_scene_image(self, folder, scene_number, source_path):
         self.images.append((scene_number, source_path))
         return {"saved_path": f"{folder}/zimage_approved/image_{scene_number:04d}.png"}
+
+    def analyze_audio(self, audio_path, folder, target_peaks=1600):
+        self.analyzed = audio_path
+        return {
+            "audio_path": f"{folder}/project_audio/track.mp3",
+            "duration": 9.0,
+            "peaks": [0.1, 0.9, 0.4],
+            "beats": [0.0, 0.66, 1.33],
+            "tempo_bpm": 90.0,
+        }
 
 
 def _export_tool(session):
@@ -1085,6 +1098,60 @@ def test_references_are_staged_into_the_builder_project(tmp_path):
     assert staged.is_file() and staged.parent == project / "references"
     assert "wide" not in casting["references"]
     assert any("does not exist" in w for w in warnings)
+
+
+def test_real_audio_is_analyzed_and_recorded_in_the_session(project_dir, tmp_path):
+    # analyze_audio copies the track and returns beats/peaks/tempo; writing
+    # them into the session is the caller's job - the same one-way pattern as
+    # save_scene_image and new_project.
+    import json as _json
+
+    (project_dir / "artifacts" / "scene_plan.json").write_text(
+        _json.dumps(_scene_plan()), encoding="utf-8"
+    )
+    track = tmp_path / "track.mp3"
+    track.write_bytes(b"ID3 fake")
+    vrgdg_folder = tmp_path / "vrgdg_target"
+    vrgdg_folder.mkdir()
+    tool = _export_tool(_scaffold_session())
+    result = tool.execute({
+        "operation": "export",
+        "project_dir": str(project_dir),
+        "project_folder": str(vrgdg_folder),
+        "audio_path": str(track),
+    })
+    assert result.success, result.error
+    assert result.data["beat_markers"] == 3
+    assert result.data["tempo_bpm"] == 90.0
+    saved = tool._client.saved
+    assert saved["audio_path"].endswith("project_audio/track.mp3")
+    assert saved["beat_markers"] == [0.0, 0.66, 1.33]
+    assert saved["detected_tempo_bpm"] == 90.0
+    assert saved["show_beat_markers"] is True
+    # real audio replaces the scaffold
+    assert tool._client.silent is None
+    # and the SRT is still written
+    assert tool._client.srt
+
+
+def test_the_silent_scaffold_is_recorded_in_the_session_too(project_dir, tmp_path):
+    import json as _json
+
+    (project_dir / "artifacts" / "scene_plan.json").write_text(
+        _json.dumps(_scene_plan()), encoding="utf-8"
+    )
+    vrgdg_folder = tmp_path / "vrgdg_target"
+    vrgdg_folder.mkdir()
+    tool = _export_tool(_scaffold_session())
+    result = tool.execute({
+        "operation": "export",
+        "project_dir": str(project_dir),
+        "project_folder": str(vrgdg_folder),
+    })
+    assert result.success, result.error
+    saved = tool._client.saved
+    assert saved["audio_path"].endswith("silence.wav")
+    assert saved["audio_duration"] == 9.0
 
 
 def test_a_pushed_still_is_recorded_in_the_session(project_dir, tmp_path):

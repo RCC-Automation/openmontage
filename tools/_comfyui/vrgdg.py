@@ -608,17 +608,32 @@ class VRGDGClient:
             "POST", "/vrgdg/music_builder/load_session", {"project_folder": project_folder}
         )
 
-    def save_session(self, project_folder: str, session: Mapping[str, Any]) -> dict[str, Any]:
+    def save_session(
+        self,
+        project_folder: str,
+        session: Mapping[str, Any],
+        *,
+        audio_path: str | None = None,
+    ) -> dict[str, Any]:
         """Write a session back.
 
         Always pass a session obtained from :meth:`load_session` with only known
         keys changed. The file carries ~95 top-level keys and ~110 per segment
         and has no version field, so a hand-built session silently drops state.
+
+        ``audio_path`` must be passed here, at the payload top level, or not at
+        all: the server overrides the session's own ``audio_path`` with this
+        field on every save (blanking it when absent), and it is also what
+        triggers VRGDG's snapshot of the file into the project folder.
         """
+        payload: dict[str, Any] = {
+            "project_folder": project_folder,
+            "session": dict(session),
+        }
+        if audio_path:
+            payload["audio_path"] = str(audio_path)
         return self._request(
-            "POST",
-            "/vrgdg/music_builder/save_session",
-            {"project_folder": project_folder, "session": dict(session)},
+            "POST", "/vrgdg/music_builder/save_session", payload
         )
 
     def save_scene_image(

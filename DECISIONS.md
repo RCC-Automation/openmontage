@@ -812,6 +812,45 @@ reload — and a save from the stale UI overwrites it. Reload before touching.
 
 ---
 
+## 34. Real audio replaces the scaffold, analyzed by VRGDG, recorded by us
+
+*accepted — 2026-08-24 · extends #14*
+
+**Context.** The timeline carried a silent bed (#14's scaffold) and the user
+asked the obvious: what about the audio? OpenMontage can already make music
+locally — `comfyui_music` drives ACE-Step 1.5 Turbo through the bundled
+workflow — and VRGDG is a *music video* builder whose whole editing model
+hangs off beats. The two had never been connected.
+
+**Decision.** Export takes `audio_path`. The track goes through VRGDG's own
+`analyze_audio` — its beat detection, its waveform, its tempo estimate — and
+the results are written into the session (`audio_path`, `audio_duration`,
+`audio_peaks`, `beat_markers`, `detected_tempo_bpm`, `show_beat_markers`),
+because the route, like every VRGDG route, does the work and leaves the
+recording to the caller. Silence remains the fallback when no track is given,
+and is now recorded in the session too, which it never was.
+
+**The protocol wrinkle that cost the first attempt.** `save_session` takes an
+`audio_path` at the *payload top level* and overrides the session's own key
+with it on every save — blanking it when absent. The first live run had
+beats and tempo land while `audio_path` came back empty, because our client
+never sent the payload field. It is also what triggers
+`_snapshot_project_assets`, VRGDG's copy of the track into the project
+folder — so sending it buys self-containment for free. The client's
+`save_session` now carries it; the docstring warns the next caller.
+
+**What this unlocks.** L3 (audio-first timing) is half-open: the Builder now
+opens with real beat markers, and `snap_to_beats` is already true in every
+session. The remaining half — reading a beat-snapped timeline back and
+proposing new scene boundaries through a checkpoint — is the part #Open
+questions already flags as gate-sensitive.
+
+**Cost.** ACE-Step interprets tempo loosely (asked for 90 BPM, measured
+117.5) — anything beat-critical must use the *measured* tempo from the
+session, never the prompt's request.
+
+---
+
 ## Open questions
 
 - **Where should beat timing win?** L3 has VRGDG measure the music and snap scene

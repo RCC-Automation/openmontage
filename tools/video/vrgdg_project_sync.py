@@ -169,7 +169,17 @@ class VRGDGProjectSync(BaseTool):
                 "description": (
                     "export: write a silent audio bed the length of the timeline and "
                     "an SRT of the scene labels. VRGDG's video routes require both, "
-                    "even for a film with no dialogue."
+                    "even for a film with no dialogue. Ignored when audio_path is "
+                    "given - real audio replaces the scaffold."
+                ),
+            },
+            "audio_path": {
+                "type": "string",
+                "description": (
+                    "export: a real music track for the timeline. Analyzed through "
+                    "VRGDG's own beat detection, so the Builder opens with the "
+                    "waveform, beat markers and tempo already in place. Replaces "
+                    "the silent scaffold."
                 ),
             },
             "project_folder": {
@@ -444,17 +454,27 @@ class VRGDGProjectSync(BaseTool):
                         segment["image"] = landed
                         segment["approved_image_path"] = landed
 
-        self._client.save_session(project_folder, session)
-
         extras: dict[str, Any] = {}
-        if inputs.get("scaffold_audio_and_srt", True):
+        audio_input = str(inputs.get("audio_path") or "").strip()
+        if audio_input:
+            extras.update(
+                self._apply_project_audio(session, project_folder, audio_input, warnings)
+            )
+        elif inputs.get("scaffold_audio_and_srt", True):
             duration = scene_plan_duration(scene_plan)
             if duration > 0:
                 try:
                     audio = self._client.create_silent_audio(project_folder, duration)
-                    extras["audio_path"] = audio.get("audio_path") or audio.get("saved_path")
+                    landed = audio.get("audio_path") or audio.get("saved_path")
+                    if landed:
+                        # The route writes the file; the session must be told.
+                        session["audio_path"] = str(landed)
+                        session["audio_duration"] = duration
+                        extras["audio_path"] = str(landed)
                 except VRGDGError as exc:
                     warnings.append(f"could not create the silent audio bed: {exc}")
+
+        if inputs.get("scaffold_audio_and_srt", True) or audio_input:
             srt = scene_plan_to_srt(scene_plan)
             if srt.strip():
                 try:
@@ -462,6 +482,12 @@ class VRGDGProjectSync(BaseTool):
                     extras["srt_written"] = True
                 except VRGDGError as exc:
                     warnings.append(f"could not write the project SRT: {exc}")
+
+        # audio_path must ride at the payload top level: the server overrides
+        # the session's own key with it on every save, and it is what triggers
+        # the snapshot of the file into the project folder.
+        session_audio = str(session.get("audio_path") or "") or None
+        self._client.save_session(project_folder, session, audio_path=session_audio)
 
         scene_map.save(project_dir, vrgdg_project_folder=project_folder)
 
@@ -618,6 +644,50 @@ class VRGDGProjectSync(BaseTool):
         elif isinstance(casting.get("reference"), str) and casting["reference"].strip():
             copied = stage(casting["reference"], "reference")
             casting["reference"] = copied or ""
+
+    def _apply_project_audio(
+        self,
+        session: dict[str, Any],
+        project_folder: str,
+        audio_path: str,
+        warnings: list[str],
+    ) -> dict[str, Any]:
+        """Hand a real track to VRGDG and record the analysis in the session.
+
+        analyze_audio copies the file into the project and returns the
+        waveform, beat markers and tempo - and, like every VRGDG route, leaves
+        writing them into the session to the caller (the Builder UI records
+        exactly these keys after its own call).
+        """
+        source = Path(audio_path)
+        if not source.is_file():
+            warnings.append(f"audio: {source} does not exist; the timeline has no audio")
+            return {}
+        try:
+            data = self._client.analyze_audio(str(source.resolve()), project_folder)
+        except VRGDGError as exc:
+            warnings.append(f"audio: analysis failed, the timeline has no audio: {exc}")
+            return {}
+        landed = str(data.get("audio_path") or source.resolve())
+        beats = data.get("beats") if isinstance(data.get("beats"), list) else []
+        peaks = data.get("peaks") if isinstance(data.get("peaks"), list) else []
+        session["audio_path"] = landed
+        session["audio_duration"] = float(data.get("duration") or 0.0)
+        session["audio_peaks"] = peaks
+        session["beat_markers"] = beats
+        session["detected_tempo_bpm"] = float(data.get("tempo_bpm") or 0.0)
+        session["show_beat_markers"] = bool(beats)
+        if not beats:
+            warnings.append(
+                "audio: analysis found no beat markers - beat-snapped editing "
+                "will have nothing to snap to"
+            )
+        return {
+            "audio_path": landed,
+            "audio_duration": session["audio_duration"],
+            "beat_markers": len(beats),
+            "tempo_bpm": session["detected_tempo_bpm"],
+        }
 
     def _load_session(self, project_folder: str) -> dict[str, Any] | None:
         response = self._client.load_session(project_folder)
