@@ -242,31 +242,43 @@ without those installed.
 Required by VRGDG's LTX templates. Installer:
 `…\Comfy-Desktop\_vrgdg_setup\Install-VRGDGModels.ps1` (re-running is always safe).
 
-| File | Destination | Status |
-|---|---|---|
-| `LTX-2.3-22B-distilled-1.1-Q6_K.gguf` | `diffusion_models\` | 19.56 GB — **regressed to partial**, may be truncated |
-| `ltx-2.3-22b-dev_transformer_only_int8_convrot.safetensors` | `diffusion_models\LTX_8bit\` | 20.03 GB so far — **partial, resumes** |
-| `gemma-3-12b-it-abliterated…safetensors` | `text_encoders\` | 13.15 GB — **partial, resumes** |
-| `ltx-2.3_text_projection_bf16.safetensors` | `text_encoders\` | 2.15 GB — **exact match, complete** |
-| `LTX23_video_vae_bf16` / `LTX23_audio_vae_bf16` | `vae\` | 1.35 / 0.33 GB — **exact match, complete** |
-| `ltx-2.3-spatial-upscaler-x2-1.1.safetensors` | `latent_upscale_models\` | 0.93 GB — **partial, resumes** |
-| `4x-UltraSharp.pth` | `upscale_models\` | 0.06 GB — **partial, resumes** |
-| 4 LTX LoRAs | `loras\`, `loras\LTX\` | all **exact match, complete** |
+**All 12 are downloaded.** Verified 2026-08-24 by comparing each local file
+against the server's `Content-Length`, not by trusting the installer's report:
 
-Verified by `Install-VRGDGModels.ps1 -Preview` on 2026-08-24: 7 of 12 complete,
-**5 still partial** (both 22B LTX weights, the gemma text encoder, the spatial
-upscaler, 4x-UltraSharp).
-The int8 transformer grew again (19.5 → 20.03 GB) and the Q6_K GGUF moved from
-`[have]` back to `[part]` at an unchanged 19.56 GB — so it lost its completeness
-marker or is genuinely truncated. The installer re-asks the server on resume; 911 GB free, so space is not the
-constraint.
+| File | Destination | Bytes, local = remote |
+|---|---|---|
+| `LTX-2.3-22B-distilled-1.1-Q6_K.gguf` | `diffusion_models\` | 21,006,400,160 ✅ |
+| `ltx-2.3-22b-dev_transformer_only_int8_convrot.safetensors` | `diffusion_models\LTX_8bit\` | 21,505,993,064 ✅ |
+| `gemma-3-12b-it-abliterated…safetensors` | `text_encoders\` | 14,123,240,650 ✅ |
+| `ltx-2.3_text_projection_bf16.safetensors` | `text_encoders\` | 2,312,149,072 ✅ |
+| `LTX23_video_vae_bf16` / `LTX23_audio_vae_bf16` | `vae\` | 1,452,258,578 / 364,855,188 ✅ |
+| `ltx-2.3-spatial-upscaler-x2-1.1.safetensors` | `latent_upscale_models\` | 995,743,560 ✅ |
+| `4x-UltraSharp.pth` | `upscale_models\` | 66,961,958 ✅ |
+| 4 LTX LoRAs | `loras\`, `loras\LTX\` | all **exact match** |
+
+**The five that read `[part]` were never partial.** Their `.complete` marker
+files had been deleted by hand. For a manifest entry with `size = 0` the
+installer's only completeness test is that marker, so a finished file reports as
+partial — see the trap in `HANDOFF.md`. The earlier note here, that the Q6_K GGUF
+"may be truncated" at an unchanged size, was that trap being read as evidence.
+Re-running the installer is still safe and is one way to restore the markers:
+`curl -C -` asks for bytes past the end, the server answers 416, curl exits 33,
+and the script has a branch that rewrites the marker rather than re-downloading.
+
+**ComfyUI already lists all of them**, in the loader dropdowns the VRGDG LTX
+templates actually use: `UnetLoaderGGUF.unet_name` has the Q6_K GGUF,
+`DiffusionModelLoaderKJ.model_name` has the int8 convrot transformer,
+`DualCLIPLoaderGGUF.clip_name1` has gemma and the text projection, and both VAEs
+resolve.
 
 Opt-in groups not fetched: `krea2`, `ernie`, `minimax` (~40 GB).
 
-**Build routes verified rendering today:** `zimage`, `flux_klein`, plus the
-bundled SDXL workflow (not a VRGDG route).
-**Blocked on the download:** every LTX route (`i2v`, `t2v`, `flf`, `rtv`,
-`ingredients`, `id_lora`), `z_upscale_enhance`.
+**Build routes verified rendering:** `zimage`, `flux_klein`, plus the bundled
+SDXL workflow (not a VRGDG route).
+**Unblocked, not yet run:** every LTX route (`i2v`, `t2v`, `flf`, `rtv`,
+`ingredients`, `id_lora`) and `z_upscale_enhance`. The weights are present; what
+remains is selecting them once in the Builder so they land in
+`VRGDG_Model_Defaults`, which is what the client reads.
 **Blocked on opt-in groups:** `krea2`, `krea2_2pass`, `ernie_image`, `minimax_h3`.
 
 ---
@@ -290,18 +302,21 @@ trusted until reconciled.
 
 ## Next
 
-1. **Re-run `Install-VRGDGModels.ps1`.** Five files are partial — both 22B LTX
-   weights, the gemma text encoder, the spatial upscaler, 4x-UltraSharp. Every
-   LTX route stays dark until they land, which blocks all video work including
-   the round trip's render step. The Q6_K GGUF regressed from `[have]` to
-   `[part]` at the same 19.56 GB, so it may be truncated rather than merely
-   unmarked; the installer re-verifies on resume.
-2. **Restart ComfyUI**, open the VRGDG Builder once and select the LTX models —
-   they save to `VRGDG_Model_Defaults`, which the client reads.
+1. **Restore the five `.complete` markers** so the installer stops reporting
+   finished files as partial. Either create them by hand next to the model files,
+   or re-run `Install-VRGDGModels.ps1`, which rewrites them without
+   re-downloading. Cosmetic — nothing depends on the markers except the
+   installer's own report — but leaving it wrong is what produced the
+   "may be truncated" note above.
+2. **Open the VRGDG Builder once and select the LTX models** — they save to
+   `VRGDG_Model_Defaults`, which the client reads. The files are already visible
+   in ComfyUI's loader dropdowns, so no restart is needed unless the Builder was
+   open before they appeared.
 3. **Live round trip** — plan a 2-scene film → `operation: "export"` → render both
    scenes in the Builder → `operation: "import"` → confirm the same scene ids
    come back. This is the test that proves the system, and nothing after it
-   should start before it passes. It is the oldest unfinished item here.
+   should start before it passes. It is the oldest unfinished item here, and as
+   of today nothing blocks it.
 4. Then L3 (beat timing) or L4 (local post tier) — both self-contained, either
    order.
 

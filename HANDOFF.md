@@ -178,6 +178,19 @@ status code.
 folder*. In a Cowork session there is no slash command — say "clock out" and the
 agent follows `.agents/skills/clock-out/SKILL.md` directly.
 
+**A finished download can report as partial.** The installer decides `[have]`
+two different ways. Entries with a known expected size are checked byte-for-byte
+and the answer is trustworthy. Entries with `size = 0` — the two 22B LTX weights,
+the gemma text encoder, the spatial upscaler, 4x-UltraSharp — are judged **only**
+by a sidecar `<file>.complete` marker the installer wrote when it finished. Delete
+the markers and five complete files report `[part] … will resume` with the byte
+count they have always had. That cost this project a documented claim that the
+Q6_K GGUF "may be truncated" when it was byte-identical to the server all along.
+Check the file, not the report: compare its size against the server's
+`Content-Length` (`curl -sIL <url>`). Re-running the installer is safe either way
+— `curl -C -` asks for bytes past the end, the server answers 416, curl exits 33,
+and the script rewrites the marker instead of re-downloading.
+
 **A checkpoint that looks broken may just be mis-driven.** Distilled checkpoints
 (names carrying DMD, LCM, Turbo, Lightning) are trained for CFG ~1 and ~10 steps.
 Run one at CFG 4.5 for 35 steps and it returns saturated, posterised garbage that
@@ -274,15 +287,18 @@ construct one. See DECISIONS.md #2.
 
 ## 7. Immediate next steps
 
-1. **Re-run `Install-VRGDGModels.ps1`** — **five** files are still partial,
-   including both 22B LTX weights and the gemma text encoder. Every LTX route
-   stays dark until they complete. (The branch is pushed and in sync with origin.)
-2. **Restart ComfyUI**, open the VRGDG Builder once and select the LTX models.
-   They save to `VRGDG_Model_Defaults`, which is what the client reads.
-3. **Calibrate `look_consistency`** — the last uncalibrated band. The data is
-   already on disk: `projects/screen-tests/casting/identity/` (one character
-   across seeds) and `casting/negative/` (a different character).
-4. **The live round trip** — the test that proves the whole thing:
+1. **Open the VRGDG Builder once and select the LTX models.** They save to
+   `VRGDG_Model_Defaults`, which is what the client reads. **All twelve model
+   files are downloaded** — verified against the server's `Content-Length` on
+   2026-08-24 — and ComfyUI already lists them in the loader dropdowns the LTX
+   templates use. The five the installer still calls `[part]` are missing only
+   their `.complete` markers; see the trap above. (The branch is pushed and in
+   sync with origin.)
+2. **Restore those five markers** by re-running `Install-VRGDGModels.ps1`, or by
+   creating them by hand. Cosmetic, but it stops the next session reading
+   "partial" as "not downloaded".
+3. **The live round trip** — the test that proves the whole thing, and nothing
+   blocks it as of 2026-08-24:
    plan a 2-scene film → `operation: "export"` → open in the Builder → render both
    scenes by hand → `operation: "import"` → confirm the manifest and cut come back
    with the same scene ids.
