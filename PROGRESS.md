@@ -164,7 +164,7 @@ candidate. `minimax_h3_…` is 127 KB — a failed download.
 | axis | weight | state |
 |---|---|---|
 | `identity_stability` (ArcFace) | 0.30 | calibrated 0.21 → 0.70 |
-| `look_consistency` (CLIP) | 0.15 | inherits the old band; **not recalibrated** |
+| `look_consistency` (CLIP) | 0.15 | calibrated 0.58 → 0.97 |
 | `prompt_adherence` (CLIP) | 0.25 | recalibrated 0.29 → 0.39 |
 | `technical` | 0.20 | a gate: 1.0 usable, 0.0 broken |
 | `speed` | 0.10 | relative to slowest |
@@ -219,18 +219,18 @@ online, so their totals are not comparable), `casting/{kleinprobe,sdxlprobe,zpro
 | Suite | |
 |---|---|
 | `test_model_registry.py` | 75 passed |
-| `test_screen_test.py` | 67 passed |
+| `test_screen_test.py` | 73 passed |
 | `test_vrgdg_tools.py` + `test_vrgdg_bridge.py` | 111 passed (clock-in baseline) |
 | `test_vrgdg_tools.py` | 45 passed |
 | `test_vrgdg_bridge.py` | 66 passed |
-| `test_render_clock.py` + `test_screen_test.py` | 65 passed |
-| full `tests/contracts` | **1173 passed, 8 skipped** — no failures |
+| `test_render_clock.py` + `test_screen_test.py` | 94 passed |
+| full `tests/contracts` | **1179 passed, 8 skipped** — no failures |
 
 Artifacts are validated against the real `schemas/artifacts/*.schema.json`, not
 spot-checked — a manifest that does not validate fails much later, at
 checkpoint-write time, with a far worse error.
 
-Full `tests/contracts` now runs clean on this machine — **1173 passed, 8 skipped
+Full `tests/contracts` now runs clean on this machine — **1179 passed, 8 skipped
 in 41 s**, re-verified 2026-08-24. The ~13 `google.genai` / mermaid-CLI failures
 noted previously do not appear here; expect them again on a bare environment
 without those installed.
@@ -307,12 +307,13 @@ trusted until reconciled.
 
 ### Open work on the casting layer, in priority order
 
-- **`look_consistency` is the one uncalibrated axis left.** It inherits the band
-  written for the old whole-image `identity_stability` (0.6 → 1.0). The other
-  three bands were all checked this session and all three were wrong
-  (DECISIONS #27), so this one should be assumed wrong until measured. The
-  population it needs already exists on disk: `casting/identity/` for
-  same-character-across-seeds and `casting/negative/` for a different character.
+- **Every axis is now calibrated against output from this machine.**
+  `look_consistency` was the last one (DECISIONS #31): band 0.58 → 0.97, measured
+  from `casting/identity/` and `casting/negative/`. Four guessed bands checked,
+  four found wrong. What remains unmeasured is its *sensitivity*: both
+  populations differ in face and look together, so the axis has never been shown
+  a render that keeps the face and drops the collar — the failure it is named
+  for. That needs a population nothing on disk currently is.
 - **A reference per shot family.** DECISIONS #30 shows a reference is worth ~4×
   a description on a matched shot but collapses when the framing changes. The
   screen test has no concept of an approved reference yet; adding one would let

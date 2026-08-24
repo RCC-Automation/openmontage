@@ -272,8 +272,9 @@ def _embeddings_available() -> bool:
 def look_consistency(paths: Sequence[Path]) -> float | None:
     """How steady the whole *look* is across renders. 0..1, higher is steadier.
 
-    Mean pairwise cosine similarity of CLIP embeddings, rescaled so that the
-    similarity range real faces occupy spreads across the scale. Returns None
+    Mean pairwise cosine similarity of CLIP embeddings, rescaled so that a
+    different character scores zero and the range one character actually
+    occupies across seeds spreads across the top of the scale. Returns None
     when embeddings are unavailable, so callers can report the gap rather than
     silently scoring on fewer axes.
 
@@ -301,19 +302,44 @@ def look_consistency(paths: Sequence[Path]) -> float | None:
         mean = sum(similarities) / len(similarities)
     except Exception:
         return None
-    # NOT YET CALIBRATED against the right population. Across *different* models
-    # on one brief and seed the observed cosine ran 0.645-0.936, but this axis
-    # compares one model across *seeds*, which should sit higher and tighter.
-    # Recalibrate from a multi-seed run before trusting the spread; the two
-    # bands that were guessed rather than measured - detail and prompt
-    # adherence - were both wrong, one of them by an order of magnitude.
-    #
-    # A second limit worth stating: CLIP ViT-B/32 embeds whole images, not
-    # faces. Two renders sharing framing, palette and hair can read as similar
-    # while showing different people, so this measures overall consistency and
-    # only approximates identity. A face-recognition embedding cropped to the
-    # detected face would measure the thing this axis is named after.
-    return max(0.0, min(1.0, (mean - 0.6) / 0.4))
+    return _rescale_look(mean)
+
+
+# Calibrated on this machine, 2026-08-24, against two measured populations, both
+# rendered at the same shot (close_up-key-front) and the same three seeds:
+#
+#   a different character   0.497-0.580   (one model, the clockwork heroine
+#                                          against the lighthouse keeper, so the
+#                                          only thing that changes is who it is)
+#   one character, one model, across seeds
+#                           0.919-0.959   (three models x three seeds)
+#
+# The gap is +0.339 with no overlap, so the floor sits at the highest true
+# negative and the ceiling above the best observed hold, leaving a better stack
+# rankable. The band this replaced ran 0.6-1.0 and was never measured; under it
+# every real candidate landed in 0.80-0.90, a 0.10 spread on an axis weighted
+# 0.15, which is not enough to move a ranking. That makes four guessed bands
+# checked and four found wrong (DECISIONS #27).
+#
+# **The positives cluster tightly, and that is the finding.** All three models
+# held the *look* across seeds even though ArcFace shows one of them
+# (gonzalomozpop-v40, face 0.42) rendering three different women. Same brief,
+# same palette, same pink hair - a different person each time. That is exactly
+# the split decision #28 predicted, now observed: this axis cannot be read as
+# identity, and identity cannot be read as look.
+#
+# Headroom below the positives is real, not theoretical: the same character
+# rendered by *different* models runs 0.728-0.944, so a model that answers the
+# brief differently each seed lands in that range and scores 0.4-0.9 here.
+#
+# Still unmeasured: "same person, wardrobe or palette changed" - the failure this
+# axis is named for. Both populations above differ in face *and* look together.
+# Measuring it needs a population that holds the face and drops the collar.
+_DIFFERENT_LOOK, _SAME_LOOK = 0.58, 0.97
+
+
+def _rescale_look(mean: float) -> float:
+    return max(0.0, min(1.0, (mean - _DIFFERENT_LOOK) / (_SAME_LOOK - _DIFFERENT_LOOK)))
 
 
 def identity_stability(paths: Sequence[Path]) -> float | None:

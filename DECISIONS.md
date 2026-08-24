@@ -662,6 +662,53 @@ measured against the reference.
 
 ---
 
+## 31. The look band, measured — and the last guessed constant closed out
+
+*accepted — 2026-08-24*
+
+**Context.** `look_consistency` was the one axis still carrying a band nobody had
+measured. It rescaled CLIP cosine over 0.6 → 1.0, a range inherited from when
+this function *was* `identity_stability` and worked on whole images, before
+ArcFace took that name (#28). Decision #27 said a band ships calibrated or
+marked; this one was marked, and this closes it.
+
+**Decision.** Band set to 0.58 → 0.97 from two populations already on disk, both
+at one shot (`close_up-key-front`) and one seed set, so the only variable is who
+is in the picture:
+
+| population | cosine |
+|---|---|
+| a different character (heroine vs lighthouse keeper, **same model**) | 0.497–0.580 |
+| one character, one model, across three seeds (3 models × 3 seeds) | 0.919–0.959 |
+
+Gap +0.339, no overlap. Floor at the highest true negative, ceiling above the
+best observed hold so a steadier stack stays rankable — the same shape as the
+face band. Scored end to end on the real renders: darkbeast 0.957, klein 0.917,
+zpop 0.884; the two characters mixed together score 0.203.
+
+**Four for four.** Every guessed band in this codebase has now been checked and
+every one was wrong. This one was wrong in the quiet way rather than the loud
+way: under 0.6 → 1.0 the three real candidates scored 0.80, 0.86 and 0.90, a
+0.10 spread on an axis weighted 0.15 — contributing 0.015 to a final score, which
+cannot move a ranking. It did not look broken. It looked like agreement.
+
+**The finding worth more than the band.** `gonzalomozpop-v40` scores 0.884 on
+look and 0.416 on face. It held the pink hair, the palette and the collar across
+all three seeds while rendering three different women. That is decision #28's
+premise — that these two axes see different things — observed rather than
+argued, and it is the case for keeping both.
+
+**What is still not measured.** "Same person, wardrobe or palette changed" — the
+failure this axis is *named* for. Both populations above differ in face and look
+together, so what is calibrated is the axis's floor and ceiling, not its
+sensitivity to the specific drift it guards. Measuring that needs a population
+that holds the face and drops the collar, which nothing on disk currently is.
+Recorded in the code rather than left to be rediscovered.
+
+**Cost.** Twelve images, CPU CLIP, minutes. No renders, no GPU.
+
+---
+
 ## Open questions
 
 - **Where should beat timing win?** L3 has VRGDG measure the music and snap scene

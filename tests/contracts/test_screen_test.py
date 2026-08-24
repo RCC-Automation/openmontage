@@ -810,3 +810,63 @@ class TestFaceIdentityCalibration:
         from lib.face_identity import _rescale
 
         assert _rescale(0.667) < 1.0
+
+
+class TestLookConsistencyCalibration:
+    """The CLIP band is set from two measured populations, like the face band.
+
+    Both were rendered at one shot and one seed set, so the only variable is
+    who is in the picture: a different character (the lighthouse keeper against
+    the clockwork heroine, one model) ran 0.497-0.580, and one character across
+    seeds ran 0.919-0.959. No overlap, gap +0.339.
+
+    The band this replaced ran 0.6-1.0 and was never measured. Under it every
+    real candidate scored 0.80-0.90 - a spread too small to move a ranking on
+    an axis weighted 0.15.
+    """
+
+    def test_a_different_character_scores_zero(self):
+        from lib.screen_test import _rescale_look
+
+        assert _rescale_look(0.580) == 0.0
+        assert _rescale_look(0.497) == 0.0
+
+    def test_one_character_across_seeds_scores_high(self):
+        from lib.screen_test import _rescale_look
+
+        assert _rescale_look(0.919) > 0.8
+        assert _rescale_look(0.959) > 0.9
+
+    def test_the_ceiling_is_not_saturated_by_the_best_observed(self):
+        """Room above the best real result, so a steadier stack stays rankable."""
+        from lib.screen_test import _rescale_look
+
+        assert _rescale_look(0.959) < 1.0
+
+    def test_there_is_headroom_below_the_measured_positives(self):
+        """A model that answers the brief differently each seed must be rankable.
+
+        The same character rendered by *different* models runs 0.728-0.944; a
+        single model that inconsistent should land mid-scale, not at the floor.
+        """
+        from lib.screen_test import _rescale_look
+
+        assert 0.3 < _rescale_look(0.728) < 0.6
+        assert 0.6 < _rescale_look(0.850) < 0.8
+
+    def test_the_old_guessed_band_could_not_move_a_ranking(self):
+        """Regression: 0.6-1.0 compressed every real candidate into 0.10."""
+        from lib.screen_test import _rescale_look
+
+        spread = _rescale_look(0.959) - _rescale_look(0.919)
+        old_spread = ((0.959 - 0.6) / 0.4) - ((0.919 - 0.6) / 0.4)
+        assert spread > old_spread
+
+    def test_look_is_not_identity(self):
+        """gonzalomozpop-v40 held the look (0.919-0.936) while ArcFace saw three
+        different women (0.42). The axes must be free to disagree."""
+        from lib.face_identity import _rescale
+        from lib.screen_test import _rescale_look
+
+        assert _rescale_look(0.928) > 0.8
+        assert _rescale(0.414) < 0.6

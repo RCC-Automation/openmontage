@@ -222,10 +222,12 @@ runs one job at a time — blocked the whole contract suite behind whatever else
 was queued. Now skipped when a provider is available. If another contract test
 starts hanging, suspect the same shape.
 
-**A guessed rescaling band has been wrong every time it was checked.** Three of
-them, all measured this session against real renders, all wrong — one by an order
-of magnitude. If you add a metric, calibrate it against output from this machine
-or mark it NOT CALIBRATED with the population it needs. DECISIONS.md #27.
+**A guessed rescaling band has been wrong every time it was checked.** Four of
+them now, all measured against real renders, all wrong — one by an order of
+magnitude, and the last one (`look_consistency`) in the quieter way: it scored
+every real candidate 0.80-0.90, which reads as agreement rather than as a broken
+axis. If you add a metric, calibrate it against output from this machine or mark
+it NOT CALIBRATED with the population it needs. DECISIONS.md #27 and #31.
 
 **A fixed seed is reproducibility, not character consistency.** Same model +
 prompt + seed reproduces byte-identically, which is why sweeps pin 7777. But hold
