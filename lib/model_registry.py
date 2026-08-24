@@ -40,6 +40,7 @@ __all__ = [
     "classify",
     "default_ledger_path",
     "default_models_root",
+    "driver_signature",
     "read_safetensors_header",
     "resolve_driver",
     "resolve_model_name",
@@ -84,8 +85,31 @@ DRIVERS: dict[str, dict[str, Any]] = {
         "graph_source": "bundled",
         "workflow": "juggernaut-xl-ragnarok-txt2img",
         "binding": "checkpoint_name",
+        # CheckpointLoaderSimple only lists models/checkpoints, so an SDXL file
+        # parked in diffusion_models cannot be loaded however valid it is.
+        "requires_folder": "checkpoints",
     },
 }
+
+
+def driver_signature(family: str) -> str:
+    """Fingerprint of how a family is driven.
+
+    A demotion is evidence about a model *given the graph we submitted*. Change
+    the route, the encoder candidates or the resolution rules and that evidence
+    expires - otherwise a bug in our own driver permanently shrinks the usable
+    set, and the registry cannot tell the difference between "this model is
+    broken" and "we asked for it wrongly once".
+    """
+    driver = DRIVERS.get(family)
+    if not driver:
+        return "no-driver"
+    payload = json.dumps(driver, sort_keys=True) + f"|resolver={_RESOLVER_VERSION}"
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12]
+
+
+# Bump when name resolution itself changes behaviour, not just its inputs.
+_RESOLVER_VERSION = 2
 
 # GGUF states its architecture outright, so a quantized sibling is identified
 # as confidently as the safetensors original. "lumina2" is Z-Image's.
@@ -452,7 +476,8 @@ class ModelRegistry:
         afresh, because it is a different model.
         """
         seen: set[str] = set()
-        counts = {"scanned": 0, "added": 0, "reclassified": 0, "unchanged": 0}
+        counts = {"scanned": 0, "added": 0, "reclassified": 0, "unchanged": 0,
+                  "revived": 0}
 
         for folder in folders:
             directory = self.models_root / folder
@@ -472,10 +497,13 @@ class ModelRegistry:
                 if existing and existing.get("header_fingerprint") == fingerprint:
                     counts["unchanged"] += 1
                     existing["size_bytes"] = path.stat().st_size
+                    existing.pop("driver", None)   # migrate: no cached drivers
+                    if self._expire_stale_demotion(key, existing):
+                        counts["revived"] = counts.get("revived", 0) + 1
                     continue
 
                 verdict = classify(path, header)
-                eligible, reason = _eligibility(verdict)
+                eligible, reason = self._eligibility_for(key, verdict)
                 record: dict[str, Any] = {
                     "size_bytes": path.stat().st_size,
                     "header_fingerprint": fingerprint,
@@ -483,7 +511,6 @@ class ModelRegistry:
                     "eligible": eligible,
                     "reason": reason,
                     "source": "header" if header else "file",
-                    "driver": DRIVERS.get(verdict.family),
                     "runs": dict(_EMPTY_RUNS),
                 }
                 if existing:
@@ -496,6 +523,48 @@ class ModelRegistry:
         for key, entry in self.entries.items():
             entry["present"] = key in seen
         return counts
+
+    def _expire_stale_demotion(self, key: str, entry: dict[str, Any]) -> bool:
+        """Undo a demotion that was earned under a driver we have since changed.
+
+        Only run-outcome demotions expire. A human verdict is about intent, not
+        mechanism, so it stands until the file itself changes.
+        """
+        if entry.get("source") != "run_outcome" or entry.get("eligible") is not False:
+            return False
+        family = entry.get("family", "")
+        if entry.get("driver_signature") == driver_signature(family):
+            return False
+        eligible, reason = self._eligibility_for(key, Verdict(
+            family,
+            entry.get("modality", "unknown"),
+            entry.get("role", "unknown"),
+            tuple(entry.get("evidence") or ()),
+            entry.get("confidence", "high"),
+            bool(entry.get("bundled")),
+            entry.get("container", "safetensors"),
+        ))
+        entry["eligible"] = eligible
+        entry["reason"] = (
+            f"{reason} (earlier failure discarded: it was recorded against a "
+            f"different driver)"
+        )
+        entry["source"] = "header"
+        entry.pop("driver_signature", None)
+        return True
+
+    @staticmethod
+    def _eligibility_for(key: str, verdict: Verdict) -> tuple[bool | None, str]:
+        """Eligibility, including requirements that depend on where a file sits."""
+        eligible, reason = _eligibility(verdict)
+        driver = DRIVERS.get(verdict.family) or {}
+        required = driver.get("requires_folder")
+        if eligible and required and not key.startswith(f"{required}/"):
+            return False, (
+                f"{verdict.family} loads from models/{required}/ only; this file "
+                f"is in {key.rsplit('/', 1)[0]}/"
+            )
+        return eligible, reason
 
     # -- using what it knows ----------------------------------------------
 
@@ -523,8 +592,20 @@ class ModelRegistry:
         }
 
     def driver_for(self, key: str) -> dict[str, Any] | None:
+        """How to drive this file, read from code rather than from the ledger.
+
+        Deliberately not cached per entry. An earlier version stored a snapshot
+        of the driver alongside each model; when the driver changed from fixed
+        encoder names to resolved candidates, every stored snapshot kept the old
+        hardcoded name and the renders failed on a filename this machine never
+        had. Derived data in a persisted cache is a second source of truth, and
+        it rots silently.
+        """
         entry = self.entries.get(key)
-        return dict(entry["driver"]) if entry and entry.get("driver") else None
+        if not entry:
+            return None
+        driver = DRIVERS.get(entry.get("family", ""))
+        return dict(driver) if driver else None
 
     def key_for_basename(self, name: str) -> str | None:
         """ComfyUI names models by basename; map one back to a ledger key."""
@@ -579,6 +660,9 @@ class ModelRegistry:
                 entry["eligible"] = False
                 entry["reason"] = f"failed to render: {error or 'unknown error'}"
                 entry["source"] = "run_outcome"
+                # Stamp how it was driven, so this verdict expires if we change
+                # that rather than outliving the bug that produced it.
+                entry["driver_signature"] = driver_signature(entry.get("family", ""))
 
     def resolve(
         self,
@@ -598,7 +682,6 @@ class ModelRegistry:
         entry.setdefault("present", True)
         if family:
             entry["family"] = family
-            entry["driver"] = DRIVERS.get(family)
 
 
 def default_models_root() -> Path:

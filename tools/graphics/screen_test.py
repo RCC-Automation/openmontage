@@ -543,7 +543,10 @@ class ScreenTest(BaseTool):
 
         reference_prompt = build_prompt(inputs["brief"], conditions[0])
         ranked = score_candidates(results, prompt=reference_prompt, skip=skip)
-        picked = shortlist(ranked, int(inputs.get("shortlist_size", 8)))
+        # A quick run exists to show every model side by side, so it defaults to
+        # keeping them all. Narrowing is the job of the later rungs.
+        default_size = len(ranked) if str(inputs.get("preset", "shortlist")) == "quick" else 8
+        picked = shortlist(ranked, int(inputs.get("shortlist_size", default_size)))
 
         # A quick run exists to be looked at, so its artefact is the large
         # side-by-side rather than a survey grid of thumbnails.
@@ -577,6 +580,10 @@ class ScreenTest(BaseTool):
                 # their timings were discarded, so the clock learns from fewer
                 # samples rather than from wrong ones.
                 "contended_renders": contended,
+                # A bounded list that does not say what it dropped reads as
+                # complete coverage. Say it.
+                "ranked_total": len(ranked),
+                "shortlist_dropped": len(ranked) - len(picked),
                 "shortlist": [
                     {
                         "rank": i + 1,

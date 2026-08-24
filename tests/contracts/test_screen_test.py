@@ -305,6 +305,81 @@ def test_renders_on_unmeasured_routes_are_declared_not_hidden(tmp_path):
     assert "never measured" in plan["estimate_warnings"][0]
 
 
+def test_a_quick_run_keeps_every_model_on_the_sheet(tmp_path):
+    """quick exists to compare all models; narrowing is the later rungs' job.
+
+    The default cap of 8 silently dropped 4 of 12 from both the printout and the
+    contact sheet, which reads as complete coverage.
+    """
+    from lib.screen_test import CandidateResult, Candidate, Shot, shortlist
+
+    ranked = [
+        CandidateResult(candidate=Candidate(f"m{i}.safetensors", ()), total=1.0 - i / 20)
+        for i in range(12)
+    ]
+    assert len(shortlist(ranked, len(ranked))) == 12
+    assert len(shortlist(ranked, 8)) == 8
+
+
+class TestBoundedRankingDeclaresWhatItDropped:
+    def _run(self, tmp_path, monkeypatch, models, **extra):
+        from PIL import Image
+
+        from tools.base_tool import ToolResult
+        from tools.graphics import screen_test as module
+
+        src = tmp_path / "src.png"
+        Image.new("RGB", (64, 64), (120, 90, 60)).save(src)
+
+        class FakeImageClient:
+            def list_models(self):
+                return {"clip": ["qwen3_4b_fp8_scaled.safetensors"],
+                        "vae": ["ae.safetensors"]}
+
+            def queue_depth(self):
+                return 0
+
+        class FakeGenerator:
+            def execute(self, request):
+                out = Path(request["output_path"])
+                out.parent.mkdir(parents=True, exist_ok=True)
+                Image.open(src).save(out)
+                return ToolResult(success=True, data={})
+
+        monkeypatch.setattr(module.VRGDGClient, "is_available", lambda self: True)
+        monkeypatch.setattr(
+            "tools._comfyui.client.ComfyUIClient", lambda *a, **k: FakeImageClient()
+        )
+        monkeypatch.setattr(
+            "tools.graphics.comfyui_image.ComfyUIImage", lambda *a, **k: FakeGenerator()
+        )
+        return module.ScreenTest().execute({
+            "project_dir": str(tmp_path),
+            "character": "Wren",
+            "brief": "a heroine",
+            "matrix": {"models": models},
+            "preset": "quick",
+            "registry_path": str(tmp_path / "registry.json"),
+            "models_root": str(tmp_path / "models"),
+            "timings_path": str(tmp_path / "timings.json"),
+            **extra,
+        })
+
+    def test_quick_keeps_every_candidate(self, tmp_path, monkeypatch):
+        models = [f"m{i}.safetensors" for i in range(12)]
+        data = self._run(tmp_path, monkeypatch, models).data
+        assert data["ranked_total"] == 12
+        assert data["shortlist_dropped"] == 0
+        assert len(data["shortlist"]) == 12
+
+    def test_an_explicit_cap_reports_the_remainder(self, tmp_path, monkeypatch):
+        models = [f"m{i}.safetensors" for i in range(12)]
+        data = self._run(tmp_path, monkeypatch, models, shortlist_size=3).data
+        assert data["ranked_total"] == 12
+        assert data["shortlist_dropped"] == 9
+        assert len(data["shortlist"]) == 3
+
+
 class TestContendedRendersAreNotTimed:
     """Elapsed is measured from submission, so a shared machine inflates it.
 

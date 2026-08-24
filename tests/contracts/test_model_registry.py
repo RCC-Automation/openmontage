@@ -18,6 +18,7 @@ from lib.model_registry import (
     ModelRegistry,
     Verdict,
     classify,
+    driver_signature,
     read_safetensors_header,
     resolve_driver,
     resolve_model_name,
@@ -242,6 +243,30 @@ class TestEligibility:
         assert driver["kind"] == "zimage"
         assert driver["clip_type"] == "lumina2"
 
+    def test_the_driver_tracks_code_not_the_saved_ledger(self, tmp_path, monkeypatch):
+        """A ledger written under an older driver must not pin the old one.
+
+        This is the bug that sent a hardcoded encoder filename to ComfyUI long
+        after the code had switched to resolving names against the server.
+        """
+        registry = self._scan(tmp_path, {"z.safetensors": SIGNATURES["z-image"]})
+        registry.save()
+        reloaded = ModelRegistry.load(registry.models_root, registry.ledger_path)
+
+        patched = dict(DRIVERS["z-image"])
+        patched["kind"] = "zimage_v2"
+        monkeypatch.setitem(DRIVERS, "z-image", patched)
+
+        driver = reloaded.driver_for("diffusion_models/z.safetensors")
+        assert driver["kind"] == "zimage_v2"
+
+    def test_a_stale_cached_driver_is_dropped_on_scan(self, tmp_path):
+        registry = self._scan(tmp_path, {"z.safetensors": SIGNATURES["z-image"]})
+        key = "diffusion_models/z.safetensors"
+        registry.entries[key]["driver"] = {"clip_name": "a_name_from_2019.safetensors"}
+        registry.scan()
+        assert "driver" not in registry.entries[key]
+
     def test_sdxl_routes_to_the_bundled_workflow(self, tmp_path):
         root = tmp_path / "models"
         write_safetensors(root / "checkpoints" / "x.safetensors", SIGNATURES["sdxl"])
@@ -391,9 +416,111 @@ class TestLearningFromRuns:
         assert registry.entries[key]["reason"] == "reserved for the hero shot"
 
     def test_a_human_verdict_can_assign_a_family_and_driver(self, tmp_path):
+        """Setting the family is enough; the driver follows from code."""
         registry, key = self._registry(tmp_path)
         registry.resolve(key, eligible=True, family="sdxl")
-        assert registry.entries[key]["driver"] == DRIVERS["sdxl"]
+        assert registry.entries[key]["family"] == "sdxl"
+        assert registry.driver_for(key) == DRIVERS["sdxl"]
+        # The driver must never be cached in the entry - a stored snapshot goes
+        # stale the moment DRIVERS changes, which is how the encoder name
+        # regressed to a file this machine never had.
+        assert "driver" not in registry.entries[key]
+
+
+class TestDemotionsExpireWithTheirDriver:
+    """A demotion is evidence about a model *given the graph we submitted*.
+
+    The failure this guards against actually happened: a sweep ran before the
+    encoder names were resolved against the server, every Z-Image model failed
+    validation on a filename we had no business sending, and all five were
+    demoted permanently. Fixing the driver left the verdicts behind.
+    """
+
+    def _registry(self, tmp_path):
+        root = tmp_path / "models"
+        write_safetensors(root / "diffusion_models" / "m.safetensors",
+                          SIGNATURES["z-image"])
+        registry = ModelRegistry.load(root, tmp_path / "ledger.json")
+        registry.scan()
+        return registry, "diffusion_models/m.safetensors"
+
+    def test_a_demotion_records_the_driver_it_was_earned_under(self, tmp_path):
+        registry, key = self._registry(tmp_path)
+        registry.record_run(key, ok=False, error="clip_name not in list")
+        assert registry.entries[key]["driver_signature"] == driver_signature("z-image")
+
+    def test_changing_the_driver_revives_the_model(self, tmp_path, monkeypatch):
+        registry, key = self._registry(tmp_path)
+        registry.record_run(key, ok=False, error="clip_name not in list")
+        assert registry.entries[key]["eligible"] is False
+
+        # Same file, different driver - the old failure no longer applies.
+        patched = dict(DRIVERS["z-image"])
+        patched["clip_candidates"] = ["something_else.safetensors"]
+        monkeypatch.setitem(DRIVERS, "z-image", patched)
+
+        counts = registry.scan()
+        assert counts["revived"] == 1
+        assert registry.entries[key]["eligible"] is True
+        assert "earlier failure discarded" in registry.entries[key]["reason"]
+
+    def test_an_unchanged_driver_keeps_the_demotion(self, tmp_path):
+        """Only our own changes expire the evidence, not the passage of time."""
+        registry, key = self._registry(tmp_path)
+        registry.record_run(key, ok=False, error="UNETLoader: unknown model type")
+        counts = registry.scan()
+        assert counts["revived"] == 0
+        assert registry.entries[key]["eligible"] is False
+
+    def test_a_human_verdict_survives_a_driver_change(self, tmp_path, monkeypatch):
+        """A human decision is about intent, not mechanism."""
+        registry, key = self._registry(tmp_path)
+        registry.resolve(key, eligible=False, reason="not the look I want")
+        patched = dict(DRIVERS["z-image"])
+        patched["clip_candidates"] = ["other.safetensors"]
+        monkeypatch.setitem(DRIVERS, "z-image", patched)
+        registry.scan()
+        assert registry.entries[key]["eligible"] is False
+        assert registry.entries[key]["source"] == "human"
+
+    def test_signature_is_stable_for_an_unchanged_driver(self):
+        assert driver_signature("z-image") == driver_signature("z-image")
+
+    def test_families_have_distinct_signatures(self):
+        assert driver_signature("z-image") != driver_signature("flux2")
+
+    def test_a_family_with_no_driver_signs_as_such(self):
+        assert driver_signature("chroma") == "no-driver"
+
+
+class TestFolderRequirements:
+    """Some files are valid but unloadable where they sit."""
+
+    def test_sdxl_outside_checkpoints_is_refused_with_the_reason(self, tmp_path):
+        """CheckpointLoaderSimple only lists models/checkpoints."""
+        root = tmp_path / "models"
+        write_safetensors(root / "diffusion_models" / "x.safetensors",
+                          SIGNATURES["sdxl"])
+        registry = ModelRegistry.load(root, tmp_path / "ledger.json")
+        registry.scan()
+        reason = registry.excluded()["diffusion_models/x.safetensors"]
+        assert "models/checkpoints/" in reason
+        assert "diffusion_models" in reason
+
+    def test_sdxl_in_checkpoints_is_eligible(self, tmp_path):
+        root = tmp_path / "models"
+        write_safetensors(root / "checkpoints" / "x.safetensors", SIGNATURES["sdxl"])
+        registry = ModelRegistry.load(root, tmp_path / "ledger.json")
+        registry.scan()
+        assert registry.eligible() == ["checkpoints/x.safetensors"]
+
+    def test_families_without_a_folder_rule_are_unaffected(self, tmp_path):
+        root = tmp_path / "models"
+        write_safetensors(root / "diffusion_models" / "z.safetensors",
+                          SIGNATURES["z-image"])
+        registry = ModelRegistry.load(root, tmp_path / "ledger.json")
+        registry.scan()
+        assert registry.eligible() == ["diffusion_models/z.safetensors"]
 
 
 class TestNameResolution:

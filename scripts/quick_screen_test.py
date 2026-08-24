@@ -105,9 +105,17 @@ def main() -> int:
         print("\nDry run only. Re-run without --dry-run to generate.")
         return 0
 
-    print("\nranking (this eliminates, it does not cast):")
+    dropped = result.data.get("shortlist_dropped") or 0
+    total = result.data.get("ranked_total")
+    heading = "ranking (this eliminates, it does not cast)"
+    if dropped:
+        heading += f" - showing {total - dropped} of {total}, {dropped} below the cut"
+    print(f"\n{heading}:")
     for row in result.data.get("shortlist", []):
         print(f"  {row['rank']}. {row['label']:<48} {row['total']:.3f}  {row['seconds_per_image']:.0f}s")
+    if result.data.get("contended_renders"):
+        print(f"\n! {result.data['contended_renders']} render(s) shared the machine; "
+              "their timings were not recorded")
     if result.data.get("caveat"):
         print("\n!", result.data["caveat"])
     print("\nsheet:", result.data.get("comparison_sheet"))
