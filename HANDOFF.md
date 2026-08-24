@@ -283,6 +283,19 @@ mounted, so `localhost:8188` is *its* localhost, not the Windows host's. Anythin
 needing a real render has to be run by the human in a host terminal. The same
 isolation blocks model downloads (no network egress).
 
+**Never make the approved slot a scene's only image source.** The Builder's
+render prep copies the scene's image *source* into the approved slot
+(`zimage_approved/image_NNNN.png`) on every render, reading
+`image_history → custom_image_path → custom_image_data → approved_image_path`
+in that order — and `save_scene_image` has no same-file guard (the audio copy
+path has one; the image path does not). A scene whose only source is the
+approved slot copies the file onto itself and dies with
+`[WinError 32] The process cannot access the file because it is being used by
+another process` — which survives a reboot, because nothing external holds the
+file. Reproduce by calling `save_scene_image` with source == target. The export
+now stages each still into `<project>/openmontage_stills/` and records it as
+`custom_image_path`; the approved slot is VRGDG's separate copy.
+
 **The Builder does not watch the session file.** It loads a project into
 memory and shows that until the project is reopened. Export while a project is
 open in the Builder and the user sees a stale blank timeline — worse, any save

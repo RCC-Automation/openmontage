@@ -102,8 +102,10 @@ HANDOFF trap and #32); the standing goal is closing that too.
 `i2v_prompt` is authored by `build_motion_prompt` (Video Prep opens filled in;
 the scene's authored movement text beats the enum phrase), stills are rendered
 on the OpenMontage side through `comfyui_image` + the cast, and the push
-records each landed path in the session (`image` + `approved_image_path`) the
-way the Builder UI does. Verified live: both scenes in
+stages each still into `<project>/openmontage_stills/` as the scene's
+`custom_image_path` and records VRGDG's approved copy separately — never the
+same file, or the Builder's render prep copies it onto itself (HANDOFF trap;
+it cost the first render attempt a WinError 32 that survived a reboot). Verified live: both scenes in
 `VRGDG_Project_EndToEndTest` carry image, prompts, cast and reference.
 
 **Audio too (DECISIONS #34, extends #14):** export takes `audio_path`; the

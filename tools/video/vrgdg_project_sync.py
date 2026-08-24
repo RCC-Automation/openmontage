@@ -435,24 +435,37 @@ class VRGDGProjectSync(BaseTool):
         # recorded in the same session write. VRGDG's save_scene_image route
         # only copies the file - recording where it landed is the caller's
         # job, exactly as the Builder UI does after calling it.
+        #
+        # The still is recorded as the scene's *custom image* (a copy staged
+        # inside the project), and the approved slot separately. The Builder's
+        # render prep re-copies its image source into the approved slot every
+        # time, reading custom_image_path before approved_image_path - and
+        # save_scene_image has no same-file guard, so a scene whose only
+        # source IS the approved slot copies the file onto itself and dies
+        # with WinError 32 on Windows. Two distinct files, no collision.
         pushed: list[str] = []
         if inputs.get("push_approved_stills", True):
-            pushed, saved_paths, push_warnings = self._push_stills(
+            pushed, staged, landed_paths, push_warnings = self._push_stills(
                 project_dir, project_folder, scene_plan, scene_map
             )
             warnings.extend(push_warnings)
-            if saved_paths:
+            if landed_paths:
                 from lib.vrgdg_bridge import stable_segment_id
 
                 by_segment = {
-                    stable_segment_id(scene_id): path
-                    for scene_id, path in saved_paths.items()
+                    stable_segment_id(scene_id): (staged.get(scene_id), path)
+                    for scene_id, path in landed_paths.items()
                 }
                 for segment in session.get("segments", []):
-                    landed = by_segment.get(str(segment.get("id") or ""))
-                    if landed:
-                        segment["image"] = landed
-                        segment["approved_image_path"] = landed
+                    hit = by_segment.get(str(segment.get("id") or ""))
+                    if not hit:
+                        continue
+                    source, landed = hit
+                    if source:
+                        segment["custom_image_path"] = source
+                        segment["custom_image_name"] = Path(source).name
+                        segment["image"] = source
+                    segment["approved_image_path"] = landed
 
         extras: dict[str, Any] = {}
         audio_input = str(inputs.get("audio_path") or "").strip()
@@ -725,26 +738,30 @@ class VRGDGProjectSync(BaseTool):
         project_folder: str,
         scene_plan: dict[str, Any],
         scene_map: SceneMap,
-    ) -> tuple[list[str], dict[str, str], list[str]]:
+    ) -> tuple[list[str], dict[str, str], dict[str, str], list[str]]:
         """Send approved stills over as each scene's Builder image.
 
-        Returns (pushed scene ids, {scene_id: landed path}, warnings). The
-        landed paths matter: the route copies the file and reports where it
-        put it, and the session must be told - the Builder UI does the same
-        after every save_scene_image call.
+        Returns (pushed scene ids, {scene_id: staged source}, {scene_id: landed
+        approved path}, warnings). The still is first staged into the Builder
+        project's ``openmontage_stills/`` folder so the project stays
+        self-contained, then handed to save_scene_image, which copies it into
+        the approved slot and reports where - and the session must be told
+        both, as the Builder UI does after its own calls.
         """
         manifest_path = project_dir / "artifacts" / "asset_manifest.json"
         if not manifest_path.is_file():
-            return [], {}, []
+            return [], {}, {}, []
         try:
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
-            return [], {}, [f"could not read asset_manifest.json: {exc}"]
+            return [], {}, {}, [f"could not read asset_manifest.json: {exc}"]
 
         by_scene = approved_images_by_scene(manifest)
         pushed: list[str] = []
+        staged: dict[str, str] = {}
         landed: dict[str, str] = {}
         warnings: list[str] = []
+        stage_dir = Path(project_folder) / "openmontage_stills"
         scenes = [s for s in (scene_plan.get("scenes") or []) if isinstance(s, dict)]
         for index, scene in enumerate(scenes):
             scene_id = str(scene.get("id"))
@@ -756,9 +773,17 @@ class VRGDGProjectSync(BaseTool):
                 warnings.append(f"{scene_id}: {rel} is in the manifest but not on disk")
                 continue
             try:
+                stage_dir.mkdir(parents=True, exist_ok=True)
+                copy = stage_dir / f"{scene_id}{source.suffix.lower()}"
+                shutil.copy2(source, copy)
+                staged[scene_id] = str(copy.resolve())
+            except OSError as exc:
+                warnings.append(f"{scene_id}: could not stage the still: {exc}")
+                continue
+            try:
                 # VRGDG numbers scenes from 1, in timeline order.
                 response = self._client.save_scene_image(
-                    project_folder, index + 1, str(source.resolve())
+                    project_folder, index + 1, staged[scene_id]
                 )
                 pushed.append(scene_id)
                 saved = str(response.get("saved_path") or "")
@@ -766,4 +791,4 @@ class VRGDGProjectSync(BaseTool):
                     landed[scene_id] = saved
             except VRGDGError as exc:
                 warnings.append(f"{scene_id}: could not push the still: {exc}")
-        return pushed, landed, warnings
+        return pushed, staged, landed, warnings

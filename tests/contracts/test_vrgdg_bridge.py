@@ -1189,8 +1189,19 @@ def test_a_pushed_still_is_recorded_in_the_session(project_dir, tmp_path):
     from lib.vrgdg_bridge import stable_segment_id
 
     seg = next(s for s in saved["segments"] if s["id"] == stable_segment_id("sc1"))
-    assert seg["image"].endswith("image_0001.png")
-    assert seg["approved_image_path"] == seg["image"]
+    # The approved slot is VRGDG's copy; the render *source* is our staged
+    # copy under openmontage_stills/. They must never be the same file: the
+    # Builder's render prep copies source -> approved slot on every render,
+    # and save_scene_image has no same-file guard (WinError 32 on Windows).
+    assert seg["approved_image_path"].endswith("image_0001.png")
+    assert seg["custom_image_path"].endswith("openmontage_stills\\sc1.png") or \
+        seg["custom_image_path"].endswith("openmontage_stills/sc1.png")
+    assert seg["custom_image_name"] == "sc1.png"
+    assert seg["image"] == seg["custom_image_path"]
+    assert Path(seg["custom_image_path"]).is_file()
+    assert seg["custom_image_path"] != seg["approved_image_path"]
+    # and what VRGDG was handed is the staged copy, not our project file
+    assert tool._client.images[0][1] == seg["custom_image_path"]
     other = next(s for s in saved["segments"] if s["id"] == stable_segment_id("sc2"))
     assert not other.get("image")
 
