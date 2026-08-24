@@ -4,7 +4,9 @@ State of the VRGDG integration. Update this when something lands.
 
 **Last updated:** 2026-08-24
 **Branch:** `integration/comfyui-local` (fork `RCC-Automation/openmontage`, upstream `calesthio/OpenMontage`)
-**HEAD:** `fbef175` — **8 commits ahead of origin, not pushed**
+**HEAD:** tip of `integration/comfyui-local` — **10 commits ahead of origin,
+not pushed** (`5eb0a09`…HEAD). Deliberately not naming the tip SHA: a docs
+commit invalidates its own HEAD line, and chasing it is how this file drifts.
 
 ---
 
@@ -287,8 +289,8 @@ trusted until reconciled.
 
 ## Next
 
-1. **Push.** 8 commits sit unpushed on `integration/comfyui-local`
-   (`5eb0a09`…`fbef175`). Nothing else should start on top of an unpushed branch.
+1. **Push.** 10 commits sit unpushed on `integration/comfyui-local`
+   (`5eb0a09`…HEAD). Nothing else should start on top of an unpushed branch.
 2. **Re-run `Install-VRGDGModels.ps1`.** Five files are partial — both 22B LTX
    weights, the gemma text encoder, the spatial upscaler, 4x-UltraSharp. Every
    LTX route stays dark until they land, which blocks all video work including

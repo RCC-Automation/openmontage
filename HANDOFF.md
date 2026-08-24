@@ -272,7 +272,7 @@ construct one. See DECISIONS.md #2.
 
 ## 7. Immediate next steps
 
-1. **Push** — 8 commits are unpushed. Then re-run `Install-VRGDGModels.ps1`;
+1. **Push** — 10 commits are unpushed. Then re-run `Install-VRGDGModels.ps1`;
    **five** files are still partial, including both 22B LTX weights and the gemma
    text encoder. Every LTX route stays dark until they complete.
 2. **Restart ComfyUI**, open the VRGDG Builder once and select the LTX models.
