@@ -262,10 +262,31 @@ A `pipeline_defs/vrgdg-character-film.yaml` with stages roughly:
 director skill; casting and dailies are the two loops from ideas 1 and 2, made
 conversational. The export/import stages are the bridge as it exists.
 
+## Answered 2026-08-24, and extended
+
+- **Standalone skills, integrable into a pipeline** — decided. Raul wants a
+  *set* of skills, one per production step, usable on their own; a pipeline
+  strings them together. If a step already exists, a **workflow document**
+  must explain how to use it.
+- **A dashboard for interaction**, modelled on VRGDG's Video Wizard
+  (`assets/references/AIVideoBuilder_Wizard.png`): a stepper rail, one panel
+  per step, current-state chips, quick actions, Back/Next. "An easy way to
+  trigger whatever step of the workflow and check results." Candidate hosts
+  named by Raul: a ComfyUI node, a standalone app. Backlot already exists as a
+  read-only board with a server and an SSE watcher; the natural move is to
+  grow it from observer into cockpit.
+- **A ComfyUI Lab**: test, generate and modify ComfyUI workflows without
+  hand-editing in ComfyUI — where the agent's expertise tunes nodes, samplers
+  and parameters, and combines nodes, to reach the best result. The screen
+  test generalized from "which model" to "which graph": same funnel, same
+  calibrated axes, results recorded as recipes (DECISIONS #24/#25).
+
 ## Open questions
 
-- Is the casting loop a pipeline *stage* or a standalone skill callable from any
-  pipeline? Probably a skill, so a cast can be reused across films.
+- How does a dashboard button *trigger* a step when the agent is the
+  orchestrator and Python may not orchestrate (AGENT_GUIDE)? A request queue
+  the agent consumes keeps the constitution; the Agent SDK is the eventual
+  headless path.
 - How does a send-back at `dailies` re-enter the Builder — re-export one scene,
   or the whole timeline?
 
