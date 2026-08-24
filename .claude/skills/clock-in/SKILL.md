@@ -104,13 +104,15 @@ route is dark, and the session's default `video_engine` is `"ltx"`.
 python -m pytest tests/contracts/test_vrgdg_tools.py tests/contracts/test_vrgdg_bridge.py -q
 ```
 
-Expect **105 passed** (39 + 66) as of 2026-08-23. A failure here is a finding,
-not a nuisance — you have just learned something changed underneath the work.
-Fix or report it before starting anything new.
+Expect **111 passed** (45 + 66) as of 2026-08-24. That number is a copy, and
+copies rot — the Tests table in `PROGRESS.md` is the source of truth when the two
+disagree, and this line is what should be corrected (DECISIONS.md #22). A failure
+here is a finding, not a nuisance — you have just learned something changed
+underneath the work. Fix or report it before starting anything new.
 
-For a broader check, `python -m pytest tests/contracts -q` also passes ~305 in
-the ComfyUI-related suites; the ~13 failures in a bare environment are unrelated
-(`google.genai`, mermaid CLI absent).
+For a broader check, `python -m pytest tests/contracts -q` runs the whole suite
+and is green on this machine; `PROGRESS.md` carries the current count. Expect
+~13 unrelated failures in a bare environment (`google.genai`, mermaid CLI absent).
 
 ---
 

@@ -272,9 +272,9 @@ construct one. See DECISIONS.md #2.
 
 ## 7. Immediate next steps
 
-1. **Push** — 10 commits are unpushed. Then re-run `Install-VRGDGModels.ps1`;
-   **five** files are still partial, including both 22B LTX weights and the gemma
-   text encoder. Every LTX route stays dark until they complete.
+1. **Re-run `Install-VRGDGModels.ps1`** — **five** files are still partial,
+   including both 22B LTX weights and the gemma text encoder. Every LTX route
+   stays dark until they complete. (The branch is pushed and in sync with origin.)
 2. **Restart ComfyUI**, open the VRGDG Builder once and select the LTX models.
    They save to `VRGDG_Model_Defaults`, which is what the client reads.
 3. **Calibrate `look_consistency`** — the last uncalibrated band. The data is

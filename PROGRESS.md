@@ -4,8 +4,8 @@ State of the VRGDG integration. Update this when something lands.
 
 **Last updated:** 2026-08-24
 **Branch:** `integration/comfyui-local` (fork `RCC-Automation/openmontage`, upstream `calesthio/OpenMontage`)
-**HEAD:** tip of `integration/comfyui-local` — **10 commits ahead of origin,
-not pushed** (`5eb0a09`…HEAD). Deliberately not naming the tip SHA: a docs
+**HEAD:** tip of `integration/comfyui-local` — **pushed, in sync with
+`origin/integration/comfyui-local`.** Deliberately not naming the tip SHA: a docs
 commit invalidates its own HEAD line, and chasing it is how this file drifts.
 
 ---
@@ -221,7 +221,7 @@ online, so their totals are not comparable), `casting/{kleinprobe,sdxlprobe,zpro
 | `test_model_registry.py` | 75 passed |
 | `test_screen_test.py` | 67 passed |
 | `test_vrgdg_tools.py` + `test_vrgdg_bridge.py` | 111 passed (clock-in baseline) |
-| `test_vrgdg_tools.py` | 39 passed |
+| `test_vrgdg_tools.py` | 45 passed |
 | `test_vrgdg_bridge.py` | 66 passed |
 | `test_render_clock.py` + `test_screen_test.py` | 65 passed |
 | full `tests/contracts` | **1173 passed, 8 skipped** — no failures |
@@ -230,9 +230,10 @@ Artifacts are validated against the real `schemas/artifacts/*.schema.json`, not
 spot-checked — a manifest that does not validate fails much later, at
 checkpoint-write time, with a far worse error.
 
-Full `tests/contracts` now runs clean on this machine (7 skips). The ~13
-`google.genai` / mermaid-CLI failures noted previously do not appear here; expect
-them again on a bare environment without those installed.
+Full `tests/contracts` now runs clean on this machine — **1173 passed, 8 skipped
+in 41 s**, re-verified 2026-08-24. The ~13 `google.genai` / mermaid-CLI failures
+noted previously do not appear here; expect them again on a bare environment
+without those installed.
 
 ---
 
@@ -289,21 +290,19 @@ trusted until reconciled.
 
 ## Next
 
-1. **Push.** 10 commits sit unpushed on `integration/comfyui-local`
-   (`5eb0a09`…HEAD). Nothing else should start on top of an unpushed branch.
-2. **Re-run `Install-VRGDGModels.ps1`.** Five files are partial — both 22B LTX
+1. **Re-run `Install-VRGDGModels.ps1`.** Five files are partial — both 22B LTX
    weights, the gemma text encoder, the spatial upscaler, 4x-UltraSharp. Every
    LTX route stays dark until they land, which blocks all video work including
    the round trip's render step. The Q6_K GGUF regressed from `[have]` to
    `[part]` at the same 19.56 GB, so it may be truncated rather than merely
    unmarked; the installer re-verifies on resume.
-3. **Restart ComfyUI**, open the VRGDG Builder once and select the LTX models —
+2. **Restart ComfyUI**, open the VRGDG Builder once and select the LTX models —
    they save to `VRGDG_Model_Defaults`, which the client reads.
-4. **Live round trip** — plan a 2-scene film → `operation: "export"` → render both
+3. **Live round trip** — plan a 2-scene film → `operation: "export"` → render both
    scenes in the Builder → `operation: "import"` → confirm the same scene ids
    come back. This is the test that proves the system, and nothing after it
    should start before it passes. It is the oldest unfinished item here.
-5. Then L3 (beat timing) or L4 (local post tier) — both self-contained, either
+4. Then L3 (beat timing) or L4 (local post tier) — both self-contained, either
    order.
 
 ### Open work on the casting layer, in priority order
