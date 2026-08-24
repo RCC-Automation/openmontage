@@ -43,6 +43,14 @@ def main() -> int:
     parser.add_argument("--models", nargs="*", help="Defaults to every installed image model.")
     parser.add_argument("--budget", type=float, default=None, help="GPU-minute ceiling.")
     parser.add_argument("--preset", default="quick", choices=["quick", "shortlist", "full"])
+    parser.add_argument(
+        "--recipe", default="auto", choices=["auto", "always", "never"],
+        help=(
+            "Whether to drive each checkpoint at the sampler settings in its own "
+            "metadata. auto: only where the graph is the shape those settings came "
+            "from. always: force it everywhere. never: identical sampling for all."
+        ),
+    )
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
@@ -91,6 +99,7 @@ def main() -> int:
         "brief": args.brief,
         "matrix": {"models": models},
         "preset": args.preset,
+        "use_embedded_recipe": args.recipe,
         "dry_run": bool(args.dry_run),
     }
     if args.budget:

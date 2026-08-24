@@ -325,13 +325,20 @@ def prompt_adherence(paths: Sequence[Path], prompt: str) -> float | None:
     return max(0.0, min(1.0, (mean - 0.15) / 0.20))
 
 
-def technical_score(path: Path) -> float | None:
-    """Sharpness and exposure sanity for one image. 0..1, or None if unreadable.
+# Detail measured on the sharpest tiles of the frame. Calibrated against eleven
+# real renders from this machine: eight good ones (soft and crisp alike) fall
+# between 0.0040 and 0.0137, while two colour-blown and one artefacted render
+# sit between 0.0436 and 0.0612 - an order of magnitude clear, no overlap.
+_BLURRED, _PLAUSIBLE_LOW, _PLAUSIBLE_HIGH, _NOISY = 0.0015, 0.0035, 0.020, 0.035
 
-    Variance of a Laplacian over the luminance channel, which catches the two
-    failures worth catching automatically: a blurred render and a blank or
-    blown-out one. Deliberately uses only Pillow and numpy, which are hard
-    requirements, so this axis always works even when CLIP is unavailable.
+
+def subject_detail(path: Path) -> float | None:
+    """High-frequency energy where the frame is sharpest, or None if unreadable.
+
+    Whole-frame variance measures the wrong thing for portraiture: a shallow
+    depth of field puts most of the image out of focus on purpose, so bokeh -
+    a virtue - reads as blur. Tiling the frame and taking a high percentile
+    finds whatever is actually in focus and ignores how much of the rest is not.
     """
     try:
         import numpy as np
@@ -339,7 +346,7 @@ def technical_score(path: Path) -> float | None:
 
         with Image.open(path) as handle:
             grey = handle.convert("L")
-            grey.thumbnail((512, 512))
+            grey.thumbnail((768, 768))
             pixels = np.asarray(grey, dtype=np.float32) / 255.0
     except Exception:
         return None
@@ -350,20 +357,45 @@ def technical_score(path: Path) -> float | None:
         + pixels[:-2, 1:-1] + pixels[2:, 1:-1]
         + pixels[1:-1, :-2] + pixels[1:-1, 2:]
     )
-    variance = float(laplacian.var())
-    # Band-limited on purpose. High-frequency energy rises with detail, but it
-    # keeps rising through the failure modes too - a garbled or noise-blasted
-    # render has *more* of it than a good one. A monotonic score would rank the
-    # worst output as the crispest, so the curve peaks in the band real renders
-    # occupy and falls away above it.
-    soft, crisp, noisy = 0.002, 0.020, 0.060
-    if variance <= soft:
+    import numpy as np
+
+    grid = 8
+    height, width = laplacian.shape
+    tile_h, tile_w = height // grid, width // grid
+    if tile_h < 2 or tile_w < 2:
+        return float(laplacian.var())
+    tiles = [
+        laplacian[r * tile_h:(r + 1) * tile_h, c * tile_w:(c + 1) * tile_w].var()
+        for r in range(grid) for c in range(grid)
+    ]
+    return float(np.percentile(tiles, 90))
+
+
+def technical_score(path: Path) -> float | None:
+    """Whether an image is technically usable at all. 0..1, or None if unreadable.
+
+    Deliberately a gate, not a ranking. Detail does not measure quality: a soft
+    filmic portrait and a crisp editorial one are both correct, and which you
+    want is a casting decision, not a measurement (DECISIONS.md #15). Scoring
+    them against each other buried the two renders the human actually chose in
+    11th and 12th place, while an artefacted render took the top score because
+    speckle is high-frequency.
+
+    So anything inside the band real renders occupy scores 1.0, and the axis
+    only speaks up for output that is genuinely broken - blank, blurred, or
+    noise-blasted. Ranking among usable images is left to the axes that can
+    justify an opinion, and to the person looking at the sheet.
+    """
+    detail = subject_detail(path)
+    if detail is None:
+        return None
+    if detail <= _BLURRED or detail >= _NOISY:
         return 0.0
-    if variance <= crisp:
-        return (variance - soft) / (crisp - soft)
-    if variance >= noisy:
-        return 0.0
-    return 1.0 - (variance - crisp) / (noisy - crisp)
+    if detail < _PLAUSIBLE_LOW:                      # ramp out of "blurred"
+        return (detail - _BLURRED) / (_PLAUSIBLE_LOW - _BLURRED)
+    if detail <= _PLAUSIBLE_HIGH:
+        return 1.0                                   # plausible: no opinion
+    return 1.0 - (detail - _PLAUSIBLE_HIGH) / (_NOISY - _PLAUSIBLE_HIGH)
 
 
 # ---------------------------------------------------------------------------
@@ -656,7 +688,10 @@ def comparison_sheet(
         adherence = result.scores.get("prompt_adherence")
         footer = f"{result.seconds_per_image:.0f}s"
         if technical is not None:
-            footer += f"   sharpness {technical:.2f}"
+            # The score is a gate, so printing it would read "1.00" beside every
+            # usable image and say nothing. Flag only what it actually rejects.
+            if technical < 1.0:
+                footer += f"   TECHNICAL {technical:.2f}"
         if adherence is not None:
             footer += f"   prompt {adherence:.2f}"
         draw.text((x, box_top + cell + 6), footer, fill=(150, 150, 164))

@@ -135,10 +135,9 @@ def test_a_flat_image_scores_zero_technically(tmp_path):
     assert technical_score(_image(tmp_path / "flat.png", noise=False)) == 0.0
 
 
-def test_a_detailed_image_scores_above_a_flat_one(tmp_path):
-    detailed = technical_score(_image(tmp_path / "textured.png"))
-    flat = technical_score(_image(tmp_path / "flat.png", noise=False))
-    assert detailed > flat
+def test_a_plausible_image_passes_the_gate(tmp_path):
+    """The axis is a gate, not a ranking - a usable render simply passes."""
+    assert technical_score(_image(tmp_path / "textured.png")) > 0.0
 
 
 def test_an_unreadable_file_scores_none(tmp_path):
@@ -644,3 +643,69 @@ def test_sharpness_peaks_in_the_band_real_renders_occupy(tmp_path):
 
     assert flat_score == 0.0
     assert garbled_score < real_score
+    assert real_score == 1.0, "a plausible render is not ranked, only admitted"
+
+
+class TestDetailIsAGateNotARanking:
+    """Calibrated against eleven real renders from this machine.
+
+    The old whole-frame metric ranked the two renders the human actually chose
+    11th and 12th, because both have large deliberately-blurred backgrounds, and
+    then gave its highest score of all to an artefacted render because speckle
+    is high-frequency. Both mistakes are the same mistake: treating detail as
+    quality.
+    """
+
+    def _render(self, path, *, sharp_fraction=1.0, amplitude=12, seed=5):
+        """A gradient with texture over part of the frame, blurred elsewhere."""
+        import numpy as np
+        from PIL import Image
+
+        rng = np.random.default_rng(seed)
+        size = 256
+        base = (np.linspace(0, 255, size)[None, :, None]
+                * np.ones((size, 1, 3))).astype(int)
+        noise = np.zeros((size, size, 3), dtype=int)
+        sharp_rows = int(size * sharp_fraction)
+        noise[:sharp_rows] = rng.integers(-amplitude, amplitude + 1,
+                                          (sharp_rows, size, 3))
+        Image.fromarray(np.clip(base + noise, 0, 255).astype("uint8")).save(path)
+        return path
+
+    def test_a_mostly_blurred_frame_is_not_penalised_for_its_bokeh(self, tmp_path):
+        """Shallow depth of field is a virtue; only the subject need be sharp."""
+        shallow = technical_score(self._render(tmp_path / "shallow.png",
+                                               sharp_fraction=0.25))
+        deep = technical_score(self._render(tmp_path / "deep.png",
+                                            sharp_fraction=1.0))
+        assert shallow == deep == 1.0
+
+    def test_a_noise_blasted_render_is_rejected(self, tmp_path):
+        blasted = self._render(tmp_path / "blasted.png", amplitude=120)
+        assert technical_score(blasted) == 0.0
+
+    def test_a_blank_frame_is_rejected(self, tmp_path):
+        import numpy as np
+        from PIL import Image
+
+        path = tmp_path / "blank.png"
+        Image.fromarray(np.full((256, 256, 3), 128, dtype="uint8")).save(path)
+        assert technical_score(path) == 0.0
+
+    def test_usable_renders_are_not_ordered_against_each_other(self, tmp_path):
+        """Two valid looks must tie, so the axis cannot outvote the human."""
+        soft = technical_score(self._render(tmp_path / "soft.png",
+                                            sharp_fraction=0.3, amplitude=8))
+        crisp = technical_score(self._render(tmp_path / "crisp.png",
+                                             sharp_fraction=1.0, amplitude=16))
+        assert soft == crisp == 1.0
+
+    def test_subject_detail_ignores_how_much_of_the_frame_is_out_of_focus(self, tmp_path):
+        """The reading itself must come from the sharpest region, not the mean."""
+        from lib.screen_test import subject_detail
+
+        mostly_blurred = subject_detail(self._render(tmp_path / "a.png",
+                                                     sharp_fraction=0.2))
+        all_sharp = subject_detail(self._render(tmp_path / "b.png",
+                                                sharp_fraction=1.0))
+        assert mostly_blurred == pytest.approx(all_sharp, rel=0.35)
