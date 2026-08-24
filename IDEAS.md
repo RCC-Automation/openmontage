@@ -220,6 +220,57 @@ everything.
 
 ---
 
+# 3. The Production Room — a visible, gated, interactive workflow
+
+*requested 2026-08-24 by Raul, during the first live render · status: **direction
+given, not designed***
+
+## What was said
+
+After the end-to-end test: *"even though we have done progress I am still not
+satisfied. I need a real workflow where I can identify the steps that are
+executed with OpenMontage, and I can influence them, with reviews and the
+possibility for modifications. And in the future I need a more interactive
+workflow with the Agent: the Agent does the required work — defining the
+perfect character, trying multiple seeds, multiple prompts, multiple LoRAs,
+multiple models."*
+
+## What it means
+
+Two requirements, both about **who is in control and can see it**:
+
+1. **Visible, gated steps.** Today's round trip was driven by hand: a
+   scene_plan written directly, tools called from scripts, no checkpoints, no
+   decision log, no board. That was deliberate for a plumbing test and it is
+   exactly what Rule Zero forbids for production. The user wants the real
+   thing: a pipeline definition for VRGDG films whose stages checkpoint, gate on
+   human approval, log decisions, and show on the Backlot board — so every step
+   can be reviewed, sent back, or edited before the next one starts.
+
+2. **An interactive casting loop.** Not "run the screen test and hand me a
+   ranking" but a conversation: the agent proposes a character brief, renders a
+   round (models × seeds × prompts × LoRAs), shows a contact sheet, the human
+   reacts ("more like #3, warmer, keep the collar"), the agent runs the next
+   round from that reaction, until a cast record is locked. Idea 1 built the
+   instrument; this is the session that plays it.
+
+## Shape to propose (not yet agreed)
+
+A `pipeline_defs/vrgdg-character-film.yaml` with stages roughly:
+`brief → casting (interactive, gated) → scene_plan (gated) → export → render
+(human, in the Builder) → import → dailies (gated) → post`. Each stage a
+director skill; casting and dailies are the two loops from ideas 1 and 2, made
+conversational. The export/import stages are the bridge as it exists.
+
+## Open questions
+
+- Is the casting loop a pipeline *stage* or a standalone skill callable from any
+  pipeline? Probably a skill, so a cast can be reused across films.
+- How does a send-back at `dailies` re-enter the Builder — re-export one scene,
+  or the whole timeline?
+
+---
+
 ## How the two ideas fit
 
 They are the same production sequence a real film follows:
