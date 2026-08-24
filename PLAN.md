@@ -22,14 +22,15 @@ samplers and parameters without hand-editing in ComfyUI.
 
 ## 1. The workflow at a glance
 
-A film is made in eight steps. Each step has one owner, produces one thing you
+A film is made in nine steps. Each step has one owner, produces one thing you
 can look at, and stops for your approval before the next one starts.
 
 ```
- 1. Brief ──► 2. Casting ──► 3. Scene plan ──► 4. Export ──► 5. Render ──► 6. Import ──► 7. Dailies ──► 8. Post
-    you+agent    loop           agent            agent         you            agent         loop           agent
-                (agent renders,                               (Builder)                    (agent flags,
-                 you pick)                                                                  you decide)
+ 1. Brief ─► 2. Casting ─► 3. Scene plan ─► 4. Scene look ─► 5. Export ─► 6. Render ─► 7. Import ─► 8. Dailies ─► 9. Post
+   you+agent    loop          agent           loop             agent        you           agent         loop          agent
+               (who is she?                  (where is she,                (Builder)                   (agent flags,
+                agent renders,                how does it look?                                         you decide)
+                you pick)                     agent renders, you pick)
 ```
 
 | # | Step | What happens | Who | You get to see | You can |
@@ -37,11 +38,12 @@ can look at, and stops for your approval before the next one starts.
 | 1 | **Brief** | You say what the film is; the agent turns it into a written brief: story, character, look, length, mood. | you + agent | the brief, one page | edit any line, or rewrite it |
 | 2 | **Casting** | The agent renders your character across models, seeds, prompts and LoRAs, round by round. You react to a contact sheet each round ("more like #3, warmer, keep the collar"). It ends with a **cast record** — a locked look. | agent renders, **you pick** | a contact sheet per round, with measured identity/look scores | steer every round; pick; ask for another round; stop |
 | 3 | **Scene plan** | The agent writes the shots: what happens, framing, camera, lighting, timing, music. Every scene re-states the character. | agent | the plan, scene by scene, on the board | edit a scene, reorder, change a shot, add/remove |
-| 4 | **Export** | The plan, the cast, the reference images, the prompts, the stills and the music land in a VRGDG Builder project, ready to render. | agent | the Builder timeline, fully filled | change anything in the Builder before rendering |
-| 5 | **Render** | You press render in the Builder. This is the creative eye on each take. | **you** (Builder) | the clips | re-take a scene, tweak a prompt, try a seed |
-| 6 | **Import** | Your clips and your timeline come back into the film's record with the same scene ids they left with. | agent | the manifest and the cut | — (it is a read) |
-| 7 | **Dailies** | The agent checks every clip against what the scene asked for and against the cast record: wrong motion, artifacts, the character drifted. It flags; it never decides. | agent flags, **you decide** | a dailies report: which takes look wrong and why | keep, re-shoot one scene (back to step 4 for that scene), or change the plan |
-| 8 | **Post** | Colour, grain, face repair, enhance, stitch, final. | agent (VRGDG's post routes) | the final cut | approve, or send back |
+| 4 | **Scene look** | For each scene the agent proposes several *directions* at once (dawn / night with brass lamps / rain at the window), renders them with the cast character in place, and shows a contact sheet. You pick a direction, then a frame. Ends with a **hero still** per scene — the frame the video starts from. | agent renders, **you pick** | a contact sheet per scene, with scores and a continuity check against the cast | pick; ask for more directions; change the prompt; hand a scene to the Lab for a better render |
+| 5 | **Export** | The plan, the cast, the reference images, the prompts, the hero stills and the music land in a VRGDG Builder project, ready to render. | agent | the Builder timeline, fully filled | change anything in the Builder before rendering |
+| 6 | **Render** | You press render in the Builder. This is the creative eye on each take. | **you** (Builder) | the clips | re-take a scene, tweak a prompt, try a seed |
+| 7 | **Import** | Your clips and your timeline come back into the film's record with the same scene ids they left with. | agent | the manifest and the cut | — (it is a read) |
+| 8 | **Dailies** | The agent checks every clip against what the scene asked for and against the cast record: wrong motion, artifacts, the character drifted. It flags; it never decides. | agent flags, **you decide** | a dailies report: which takes look wrong and why | keep, re-shoot one scene (back to step 4 or 5 for that scene), or change the plan |
+| 9 | **Post** | Colour, grain, face repair, enhance, stitch, final. | agent (VRGDG's post routes) | the final cut | approve, or send back |
 
 Two rules hold everywhere:
 
@@ -51,8 +53,18 @@ Two rules hold everywhere:
   send back, logs what it chose and why, and appears on the board while it is
   happening (AGENT_GUIDE, Rule Zero).
 
-Steps 2 and 7 are **loops** — the two places where quality actually comes from.
+Steps 2, 4 and 8 are **loops** — the three places where quality actually comes
+from: who she is, what each scene looks like, and whether the footage holds.
 Everything else is a straight line.
+
+Steps 2 and 4 are the same instrument pointed at different questions. Casting
+varies the model, seed, prompt and LoRA to find a *person*; scene look varies
+the direction, prompt, composition and lighting to find a *place and a frame*,
+with that person already in it. Both render, both show contact sheets, both
+end when you pick. And when a scene is right but the *rendering* is not —
+mushy, artifacts, wrong detail — that is the Lab's job, not another prompt:
+scene look explores **what** the image shows; the Lab explores **how** the
+graph renders it.
 
 ---
 
@@ -65,13 +77,14 @@ Honest inventory. "Exists" means built, tested and run live on this machine.
 | 1 Brief | `creative-intake`, `taste-direction` meta skills; `brief` artifact schema | a VRGDG-aware brief (character block, look, music intent) |
 | 2 Casting | the instrument: `screen_test` tool, five calibrated axes, model registry, render clock, cast record shape | **the conversation** — a skill that turns your reaction into the next round |
 | 3 Scene plan | scene-director skills in every pipeline; `scene_plan` schema; shot-language vocabulary | a VRGDG-aware director: character re-stated per scene, shot families, beat-aware timing |
-| 4 Export | the bridge, cast-aware: model, seed, references per shot family, both prompts, stills, music with beats | a skill with a checkpoint around it; session bootstrap still manual (HANDOFF trap) |
-| 5 Render | the Builder | — |
-| 6 Import | the bridge | a skill with a checkpoint around it |
-| 7 Dailies | `visual_qa`, `composition_validator`, ArcFace + CLIP — wired to nothing | **the loop** |
-| 8 Post | VRGDG's LUT / grain / face-fix / enhance / stitch routes (L4) | everything on our side |
+| 4 Scene look | the same instrument as casting (matrix, contact sheet, calibrated axes); one still per scene rendered with the cast (today: rendered once, never compared); VRGDG's location-reference slot on export | **the loop**: directions at once, pick, refine; a per-scene look record; the continuity check of the cast inside the scene; location references |
+| 5 Export | the bridge, cast-aware: model, seed, references per shot family, both prompts, stills, music with beats | a skill with a checkpoint around it; session bootstrap still manual (HANDOFF trap) |
+| 6 Render | the Builder | — |
+| 7 Import | the bridge | a skill with a checkpoint around it |
+| 8 Dailies | `visual_qa`, `composition_validator`, ArcFace + CLIP — wired to nothing | **the loop** |
+| 9 Post | VRGDG's LUT / grain / face-fix / enhance / stitch routes (L4) | everything on our side |
 
-The plumbing between 3 → 4 → 5 → 6 is proven as of today (round trip in
+The plumbing between 3 → 5 → 6 → 7 is proven as of today (round trip in
 progress; the export half verified live). What is missing is almost entirely
 *skills and gates* — the layer that makes the steps visible and steerable.
 
@@ -158,6 +171,48 @@ satisfied on export; a `casting` decision_log category.
 **Done when.** A character is cast end-to-end in conversation, the cast record
 carries three references, and export consumes it with no hand edits.
 
+### WP2b — the scene-look skill (the second look loop)
+
+**What.** `skills/production/scene-look.md`, sharing WP2's session state
+(`lib/look_session.py` serves both: brief, rounds, reactions, picks) with a
+scene brief instead of a character brief.
+
+The loop, per scene:
+
+```
+ scene + cast ─► round 1: 3–4 directions, one sheet     → you pick a direction
+              ─► round 2: prompt variants × composition  → you pick a frame
+              ─► round 3 (optional): seeds, or the Lab   → hero still locked
+```
+
+**Directions at once.** The agent writes several genuinely different readings
+of the scene — time of day, weather, practical light, dressing, camera
+height — as full prompts, renders each with the cast model, seed and the
+shot-family reference, and shows them side by side. That is "different
+scenarios at once, play with prompts, see the results in between."
+
+**What is measured.** Prompt adherence and technical (the calibrated axes),
+look consistency between the takes you liked, and — the new one — **the cast
+character is still herself inside the scene**: ArcFace against the cast
+reference, at still time, when a miss costs 80 seconds instead of two hours.
+This is IDEAS 2.4's continuity ledger, started at the cheapest point.
+
+**What it produces.** A per-scene **look record** in the scene plan (direction,
+prompt, seed, model, location reference) and the hero still in the asset
+manifest — which is exactly what export already pushes. VRGDG's location
+reference slot (`flux_location_image_path`, location refs) is filled from the
+hero still or a dedicated scout render, so the video step sees the place.
+
+**Where the Lab plugs in.** "Right scene, wrong rendering" hands the scene's
+prompt to WP5 with a stated axis (detail, skin, hands, banding); the Lab
+returns graph variants on a sheet; the pick becomes a recipe and the hero
+still is re-rendered with it.
+
+**GPU.** Yes — a round is 4–12 renders per scene, ~80 s each on this machine.
+
+**Done when.** Every scene of a film has a hero still chosen from a sheet, the
+cast survives in each (measured), and export needs no hand-made still.
+
 ### WP3 — production skills and the pipeline definition
 
 **What.** One skill per remaining step, then the manifest that orders them.
@@ -166,6 +221,7 @@ carries three references, and export consumes it with no hand edits.
 |---|---|---|
 | `brief` | intake + taste direction, VRGDG-aware | approve |
 | `scene-plan` | scene director; character block injected per scene; shot family per scene; beat-aware durations from the music | approve |
+| `scene-look` | WP2b, invoked per scene or for the whole plan | approve the hero stills |
 | `export` | `vrgdg_project_sync export` | approve the Builder state (screenshot + summary) |
 | `render` | none — a human step with a checklist and the traps | you say "done" |
 | `import` | `vrgdg_project_sync import` | auto |
@@ -174,7 +230,7 @@ carries three references, and export consumes it with no hand edits.
 
 `pipeline_defs/vrgdg-character-film.yaml` orders them with
 `checkpoint_required: true` everywhere and `human_approval_default: true` on
-brief, casting, scene_plan, export, dailies, post. Backlot reads this manifest
+brief, casting, scene_plan, scene_look, export, dailies, post. Backlot reads this manifest
 and shows the rail automatically — no board work needed for visibility.
 
 **Re-shoot path.** A dailies send-back names scenes. Export then re-exports
@@ -187,7 +243,7 @@ touch segments with videos unless told).
 `i2v_video_settings` (an orbit needs different settings than a static shot);
 the session-bootstrap route so step 4 needs no click in the Builder.
 
-**Done when.** A film runs all eight steps through checkpoints, every gate
+**Done when.** A film runs all nine steps through checkpoints, every gate
 stops, a send-back at dailies re-exports one scene, and the whole run replays
 on the board.
 
@@ -195,14 +251,15 @@ on the board.
 
 **What.** Grow the read-only board into the Wizard-style dashboard.
 
-- **A stepper rail** (the eight steps) with state chips: waiting / running /
+- **A stepper rail** (the nine steps) with state chips: waiting / running /
   awaiting you / approved / sent back. Backlot already derives these from
   checkpoints; the rail is a layout change.
 - **A panel per step**: the artifact rendered readably (brief as a page, plan
   as a filmstrip, casting as contact sheets with scores, dailies as a
   verdict list), the decision_log entries for that step, and the actions.
 - **Actions**: *Run this step*, *Approve*, *Send back with a note*, *Re-shoot
-  scene N*, *Another casting round with: …*.
+  scene N*, *Another casting round with: …*, *More directions for scene N*,
+  *Send scene N to the Lab for: …*.
 
 **How an action runs anything** — the constitution says Python may not
 orchestrate, and the agent is not inside the server. So an action writes a
@@ -260,6 +317,7 @@ measured, recorded, reproducible recipe, chosen by you from a contact sheet.
 ```
  WP1 WORKFLOW.md ──────────────────────────────────────────────► (no GPU)
    └─► WP2 casting skill ──────────────► needs GPU, after the LTX render
+         └─► WP2b scene-look skill ──────► same instrument, needs a cast
    └─► WP3 skills + pipeline ───► needs the round trip closed (import)
            └─► WP4 cockpit ─────► needs WP3's checkpoints to exist
    └─► WP5 lab ──────────────────► needs GPU; independent of WP3/WP4
@@ -269,6 +327,7 @@ measured, recorded, reproducible recipe, chosen by you from a contact sheet.
 |---|---|---|---|
 | WP1 | none | no | one sitting |
 | WP2 | WP1, render finished | yes | one session, plus your reactions |
+| WP2b | WP2 (a cast to put in the scene) | yes | one session, plus your picks |
 | WP3 | WP1, round trip closed | little (import, dailies analysis) | two sessions |
 | WP4 | WP3 | no | two sessions |
 | WP5 | WP1 | yes | two sessions |
@@ -292,7 +351,9 @@ back") hid a false assumption for days.
   asking.
 - WP2: a character cast in conversation; identity ≥ the darkBeast bar (0.92
   across seeds) or a stated reason why not; three references.
-- WP3: the eight gates stop; a dailies send-back re-exports one scene; the
+- WP2b: every scene of a short film has a hero still picked from a sheet;
+  the cast measured present in each; export consumes them untouched.
+- WP3: the nine gates stop; a dailies send-back re-exports one scene; the
   board replays the run.
 - WP4: a round started from the board, result on the board, no terminal.
 - WP5: a measured, recorded improvement to one workflow, chosen by you.
