@@ -76,6 +76,12 @@ assert ALL_MANIFESTS, "No pipeline manifests found"
 # an explicit reason. Everything else is required to follow the contract.
 _EXCLUDED_PIPELINES = {
     "framework-smoke": "minimal 2-stage smoke test, no compose stage",
+    # The composition-runtime contract is about Remotion vs HyperFrames, which
+    # this pipeline never reaches: ComfyUI renders every frame and VRGDG's post
+    # routes stitch the cut, so video_compose is not in any stage's tool list.
+    # Its equivalent choice - which reference mode feeds the video render - is
+    # presented at `export` and logged there instead (PLAN.md WP2c).
+    "vrgdg-character-film": "renders through ComfyUI/VRGDG; never calls video_compose",
 }
 
 

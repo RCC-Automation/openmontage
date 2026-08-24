@@ -1,0 +1,238 @@
+name: vrgdg-character-film
+version: "1.0"
+description: >
+  A character-led short film rendered locally through ComfyUI and VRGDG's Music Video
+  Builder. Nine steps: the character is cast before anything is shot, every scene's look
+  is chosen from alternatives before it is locked, the plan opens in the Builder as a
+  finished timeline, the human renders by eye, and the footage comes back measured
+  against the cast. Three of the nine are loops - casting, scene look, dailies - because
+  that is where the quality comes from.
+category: cinematic
+stability: beta
+default_checkpoint_policy: guided
+
+reference_input:
+  supported: true
+  analysis_depth: standard
+  analysis_tools:
+    - video_analyzer
+    - scene_detect
+    - frame_sampler
+
+orchestration:
+  mode: executive-producer
+  skill: pipelines/vrgdg-character-film/executive-producer
+  budget_default_usd: 0.00
+  max_revisions_per_stage: 5
+  max_send_backs: 5
+  max_wall_time_minutes: 600
+
+extensions:
+  custom_scripts: true
+  custom_playbooks: true
+  custom_skills: true
+  custom_tools: false
+
+required_skills:
+  - production/brief
+  - production/casting
+  - production/scene-plan
+  - production/scene-look
+  - production/export
+  - production/render
+  - production/import
+  - production/dailies
+  - production/post
+  - meta/reviewer
+  - meta/checkpoint-protocol
+
+compatible_playbooks:
+  custom_allowed: true
+
+stages:
+  # 1 -----------------------------------------------------------------------
+  - name: brief
+    skill: production/brief
+    produces:
+      - brief
+    tools_available: []
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - The character is described well enough to render without further questions
+      - The look is stated as image language, not adjectives
+      - Length and scene count are realistic for the render clock's estimate
+    success_criteria:
+      - Schema-valid brief artifact
+      - A character block that can be pasted into any scene description verbatim
+
+  # 2 -----------------------------------------------------------------------
+  - name: casting
+    skill: production/casting
+    required_artifacts_in:
+      - brief
+    produces:
+      - cast_record
+    preferred_tools:
+      - screen_test
+    optional_tools:
+      - comfyui_image
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - Every round was presented as a contact sheet before the next one ran
+      - The human picked; the ranking only narrowed
+      - Identity stability was measured across seeds, not asserted
+      - The cast record carries a reference per shot family it will be used in
+    success_criteria:
+      - A cast record naming model, seed, loras, settings and references
+      - identity_stability measured and recorded for the chosen candidate
+      - Every round kept in casting history with its reaction
+
+  # 3 -----------------------------------------------------------------------
+  - name: scene_plan
+    skill: production/scene-plan
+    required_artifacts_in:
+      - brief
+      - cast_record
+    produces:
+      - scene_plan
+    tools_available: []
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - Every scene description re-states the character; none says "the same X"
+      - Shot sizes map to the shot families the cast record has references for
+      - Durations respect the measured tempo when the film has music
+    success_criteria:
+      - Schema-valid scene_plan artifact
+      - No cross-scene reference in any description (DECISIONS #33)
+
+  # 4 -----------------------------------------------------------------------
+  - name: scene_look
+    skill: production/scene-look
+    required_artifacts_in:
+      - scene_plan
+      - cast_record
+    produces:
+      - asset_manifest
+    preferred_tools:
+      - comfyui_image
+    optional_tools:
+      - screen_test
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - Each scene was offered genuinely different directions, not variations of one
+      - The cast character was measured present in the chosen frame
+      - A scene whose problem was the render, not the prompt, went to the lab
+    success_criteria:
+      - One hero still per scene, chosen by the human from a sheet
+      - A look record per scene - direction, prompt, seed, model, references
+      - Cast identity measured in every hero still
+
+  # 5 -----------------------------------------------------------------------
+  - name: export
+    skill: production/export
+    required_artifacts_in:
+      - scene_plan
+      - cast_record
+      - asset_manifest
+    preferred_tools:
+      - vrgdg_project_sync
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - The Builder timeline carries prompts, stills, cast settings, references and audio
+      - Warnings about missing shot-family references were surfaced, not swallowed
+      - The reference mode chosen was stated and logged
+    success_criteria:
+      - Export reports every scene written and every still pushed
+      - The human confirms the Builder shows the timeline after a reload
+
+  # 6 -----------------------------------------------------------------------
+  - name: render
+    skill: production/render
+    required_artifacts_in:
+      - scene_plan
+    tools_available: []
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - The human, not the agent, judged each take
+      - Traps were stated before the render started, not after a failure
+    success_criteria:
+      - Every scene has a clip in the Builder, or a stated reason it does not
+
+  # 7 -----------------------------------------------------------------------
+  - name: import
+    skill: production/import
+    preferred_tools:
+      - vrgdg_project_sync
+    produces:
+      - asset_manifest
+      - edit_decisions
+    checkpoint_required: true
+    human_approval_default: false
+    review_focus:
+      - Scene ids came back the same as they went out
+      - Assets were copied into the project, not referenced by absolute path
+    success_criteria:
+      - Every exported scene id present in the imported manifest
+      - Cut boundaries match the Builder timeline
+
+  # 8 -----------------------------------------------------------------------
+  - name: dailies
+    skill: production/dailies
+    required_artifacts_in:
+      - asset_manifest
+      - scene_plan
+      - cast_record
+    produces:
+      - review
+    optional_tools:
+      - visual_qa
+      - composition_validator
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - Every clip was checked against its scene's stated intent and the cast record
+      - Findings are flags with evidence, never verdicts
+      - Drift is reported with the measured number and the band it is judged against
+    success_criteria:
+      - A per-clip verdict with reasons
+      - Any re-shoot names specific scene ids
+
+  # 9 -----------------------------------------------------------------------
+  - name: post
+    skill: production/post
+    required_artifacts_in:
+      - asset_manifest
+      - edit_decisions
+    produces:
+      - render_report
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - Each post step was applied and shown separately, not stacked blind
+      - The final cut matches the approved edit decisions
+    success_criteria:
+      - A final render on disk
+      - Schema-valid render_report
+
+metadata:
+  fork: RCC-Automation/openmontage
+  plan: PLAN.md
+  workflow: WORKFLOW.md
+  status: >
+    NOT YET RUNNABLE END TO END. The stage skills under skills/production/ are
+    not written yet - only export, render and import have working machinery
+    behind them (the bridge and the Builder). This manifest exists now because
+    it is the rail: Backlot renders the nine steps and their gates from it, and
+    WORKFLOW.md documents them. Each skill lands per PLAN.md WP2/WP2b/WP3.
+  notes: >
+    Stages casting, scene_look and dailies are loops - they run repeatedly with the human
+    reacting between rounds, and only checkpoint when the human picks. The render stage
+    has no tools by design: it is the human at the Builder, and the skill is a checklist
+    plus the traps. cast_record and look records are not yet canonical artifacts, so they
+    checkpoint unvalidated; give them schemas when their shape stops moving.

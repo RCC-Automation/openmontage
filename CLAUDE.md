@@ -24,6 +24,7 @@ Read these before working on that integration:
 | [`HANDOFF.md`](HANDOFF.md) | **Start here if you are picking this up cold.** Environment, paths, how to run things, the traps. |
 | [`PROGRESS.md`](PROGRESS.md) | What is built, what is in flight, what is next. |
 | [`DECISIONS.md`](DECISIONS.md) | Why the integration is shaped the way it is. Read before changing it. |
+| [`WORKFLOW.md`](WORKFLOW.md) | **How to make a film with this fork** — the nine steps, how to run each, what you get, how to change it. Start here to *use* the system. |
 | [`PLAN.md`](PLAN.md) | **The plan for the production workflow, the cockpit and the lab** — nine steps at a glance, five work packages, order and gates. Read before building any skill or dashboard work. |
 | [`IDEAS.md`](IDEAS.md) | Proposed but undecided directions — the screen-test lab and the dailies loop. Not scheduled; read before proposing new architecture. |
 | [`.agents/skills/comfyui/SKILL.md`](.agents/skills/comfyui/SKILL.md) | The three graph sources, including `vrgdg_build`. Mandatory before calling any `comfyui_*` tool. |

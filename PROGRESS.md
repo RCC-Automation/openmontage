@@ -367,8 +367,8 @@ trusted until reconciled.
    reference staged. What remains: render both scenes in the Builder (GPU-hours;
    deliberately deferred) → `operation: "import"` → confirm the same scene ids
    come back. Nothing blocks it but the render time.
-3. **Then `PLAN.md`**, in its order: WP1 `WORKFLOW.md` (no GPU — can run during
-   a render), WP2 the interactive casting skill, WP3 production skills and the
+3. **Then `PLAN.md`**, in its order: ~~WP1 `WORKFLOW.md`~~ **done 2026-08-24**
+   (plus `pipeline_defs/vrgdg-character-film.yaml`, nine stages, eight gated), WP2 the interactive casting skill, WP3 production skills and the
    `vrgdg-character-film` pipeline, WP4 Backlot as the cockpit, WP5 the ComfyUI
    Lab. L3's second half and L4 fold into WP3/WP5.
 
