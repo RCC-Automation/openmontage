@@ -358,6 +358,18 @@ The loops themselves — the conversation that turns "warmer, keep the collar"
 into the next round — are still unwritten. That is what WP2, WP2b and the score
 loop are.
 
+**The gate machinery was walked live** on `projects/score-poc`, brief → casting
+→ score, and it holds: a gated stage written `completed` without approval is
+refused as a GATE VIOLATION, a stage that jumps the order is refused as a
+PREREQUISITE VIOLATION, `awaiting_human` does not advance `get_next_stage` and
+approval does, and a deliberately invalid artifact is refused at write time.
+
+One gap found doing it: **`required_artifacts_in` is enforced by nothing.** A
+`scene_plan` completes with no `beat_map` in the project — the exact failure
+that moving Score earlier was meant to prevent. It is declared in the manifest
+schema and used by all 14 pipelines and read by no code. QUESTIONS Q5, with a
+recommendation.
+
 ---
 
 ## Tests

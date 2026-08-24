@@ -18,6 +18,52 @@ or names the change.
 
 <!-- Add entries at the top. Newest first. -->
 
+### Q5. Should `required_artifacts_in` be enforced, or is it documentation?
+
+**Status:** open
+**Raised:** 2026-08-24, walking `score-poc` through the checkpoint gates
+**Blocks:** nothing today. It makes one guarantee weaker than it reads.
+
+**The situation.** `write_checkpoint` enforces two things and they both work -
+verified live this session:
+
+- **the gate**: a stage with `human_approval_default: true` cannot be written
+  `completed` without `human_approved=True`. Refused correctly.
+- **stage order**: `score` could not advance while `brief` and `casting` were
+  incomplete. Refused correctly.
+
+It does **not** enforce `required_artifacts_in`. A `scene_plan` checkpoint
+completes happily with no `beat_map` anywhere in the project - which is exactly
+the failure that moving Score before the scene plan was meant to make
+impossible. The declaration reads like a guarantee and is a comment.
+
+This is not specific to this pipeline. `required_artifacts_in` appears in the
+manifest schema and in **all 14 manifests**, and is read by no code anywhere -
+only by a test written today. Every pipeline in the repo has the same gap.
+
+**What I assumed to keep going.** Left the behaviour alone. Enforcing it
+touches shared machinery under 13 other pipelines that have been running
+against the looser contract, and a change that silently starts refusing
+checkpoints mid-production is worse than the gap it closes.
+`test_vrgdg_character_film_pipeline` covers the safe half - that no stage
+*declares* an input no earlier stage produces - so the manifest at least cannot
+be internally inconsistent.
+
+**What changes if the answer is different.** `_enforce_stage_prerequisites`
+already walks prior checkpoints for stage completeness; it would additionally
+collect the artifacts they carry and check the required set against them.
+Maybe 25 lines. The risk is entirely in the other 13 pipelines: any of them
+that produces an artifact in one stage and does not carry it forward into
+later checkpoints would start failing. Worth a dry-run pass over every
+manifest before switching it on.
+
+**Recommendation:** enforce it, but behind a per-manifest opt-in
+(`enforce_artifact_prerequisites: true`) so `vrgdg-character-film` gets the
+guarantee now and the others move over one at a time.
+
+---
+
+
 ### Q4. Does a lyric cue map work in the Builder without `singer_id`?
 
 **Status:** open
