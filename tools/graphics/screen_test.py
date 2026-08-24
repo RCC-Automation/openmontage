@@ -80,6 +80,7 @@ def _render_request(
     settings: dict[str, Any],
     inputs: dict[str, Any],
     output_path: Path,
+    recipe: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build the ComfyUIImage call for one candidate on its own graph source."""
     if driver["graph_source"] == "vrgdg_build":
@@ -109,14 +110,22 @@ def _render_request(
         }
 
     # Bundled workflow: the checkpoint carries its own encoder and VAE, so the
-    # only thing that varies between candidates is which file gets loaded.
-    return {
+    # only thing that varies between candidates is which file gets loaded - and
+    # how it wants to be sampled. A distilled checkpoint asked for 35 steps at
+    # CFG 4.5 does not look slightly worse, it returns saturated garbage, so its
+    # own recipe wins over our defaults. An explicit input still overrides both.
+    request = {
         "prompt": prompt,
         "workflow_variant": "juggernaut_xl_ragnarok",
         "checkpoint_name": candidate.model,
         "seed": seed,
         "output_path": str(output_path),
     }
+    for key in ("steps", "guidance", "sampler_name", "scheduler"):
+        value = inputs.get(key) or (recipe or {}).get(key)
+        if value is not None:
+            request[key] = value
+    return request
 
 
 class ScreenTest(BaseTool):
@@ -430,6 +439,9 @@ class ScreenTest(BaseTool):
         installed = image_client.list_models()
         clips, vaes = installed.get("clip", []), installed.get("vae", [])
         contended = 0
+        # Which candidates were driven at their own settings rather than
+        # ours. A comparison where the settings vary must say so.
+        recipes_used: dict[str, dict[str, Any]] = {}
         starting_depth = image_client.queue_depth()
         if starting_depth:
             plan_summary.setdefault("estimate_warnings", []).append(
@@ -456,6 +468,9 @@ class ScreenTest(BaseTool):
                 continue
             route = _route_for(driver)
             driver = resolve_driver(driver, clips=clips, vaes=vaes)
+            recipe = registry.recipe_for(ledger_key) if ledger_key else {}
+            if recipe:
+                recipes_used[candidate.label] = dict(recipe)
             if driver["graph_source"] == "vrgdg_build" and not driver.get("vae_name"):
                 # Better to say so now than to die inside VAEDecode minutes in.
                 failures.append(
@@ -480,6 +495,7 @@ class ScreenTest(BaseTool):
                         settings=settings,
                         inputs=inputs,
                         output_path=out_path,
+                        recipe=recipe,
                     )
                     # Elapsed is measured from submission, so anything already
                     # queued is counted as our render time. One contended
@@ -580,6 +596,7 @@ class ScreenTest(BaseTool):
                 # their timings were discarded, so the clock learns from fewer
                 # samples rather than from wrong ones.
                 "contended_renders": contended,
+                "sampler_recipes_used": recipes_used,
                 # A bounded list that does not say what it dropped reads as
                 # complete coverage. Say it.
                 "ranked_total": len(ranked),

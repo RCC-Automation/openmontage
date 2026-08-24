@@ -113,6 +113,15 @@ def main() -> int:
     print(f"\n{heading}:")
     for row in result.data.get("shortlist", []):
         print(f"  {row['rank']}. {row['label']:<48} {row['total']:.3f}  {row['seconds_per_image']:.0f}s")
+    recipes = result.data.get("sampler_recipes_used") or {}
+    if recipes:
+        # The sweep's premise is that only the model varies. When a checkpoint
+        # states its own sampler settings we honour them, which breaks that
+        # premise - so say exactly where and how.
+        print("\ndriven at their own embedded settings (not the shared defaults):")
+        for label, recipe in sorted(recipes.items()):
+            detail = ", ".join(f"{k}={v}" for k, v in sorted(recipe.items()))
+            print(f"  {label:<48} {detail}")
     if result.data.get("contended_renders"):
         print(f"\n! {result.data['contended_renders']} render(s) shared the machine; "
               "their timings were not recorded")

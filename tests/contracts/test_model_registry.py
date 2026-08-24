@@ -19,6 +19,7 @@ from lib.model_registry import (
     Verdict,
     classify,
     driver_signature,
+    infer_sampler_recipe,
     read_safetensors_header,
     resolve_driver,
     resolve_model_name,
@@ -491,6 +492,105 @@ class TestDemotionsExpireWithTheirDriver:
 
     def test_a_family_with_no_driver_signs_as_such(self):
         assert driver_signature("chroma") == "no-driver"
+
+
+class TestSamplerRecipe:
+    """Many checkpoints embed the graph they were merged with. Believe it.
+
+    Distilled checkpoints (DMD/LCM/Turbo) are trained for CFG 1 and ~10 steps.
+    Driving one at 35 steps / CFG 4.5 returns saturated, posterised garbage that
+    reads as a broken model - two of the installed checkpoints were written off
+    that way before their own metadata was read.
+    """
+
+    def _prompt_graph(self, nodes):
+        return {"prompt": json.dumps(nodes)}
+
+    def test_reads_the_authors_settings(self, tmp_path):
+        path = write_safetensors(
+            tmp_path / "distilled.safetensors", SIGNATURES["sdxl"],
+            metadata=self._prompt_graph({
+                "1": {"class_type": "KSampler", "inputs": {
+                    "steps": 10, "cfg": 1.0, "sampler_name": "lcm",
+                    "scheduler": "karras", "denoise": 1.0}},
+            }),
+        )
+        recipe = infer_sampler_recipe(read_safetensors_header(path))
+        assert recipe["steps"] == 10
+        assert recipe["guidance"] == 1.0
+        assert recipe["sampler_name"] == "lcm"
+        assert recipe["scheduler"] == "karras"
+
+    def test_a_refinement_pass_is_not_mistaken_for_the_base_pass(self, tmp_path):
+        """A low-denoise second pass describes touch-up, not how it renders."""
+        path = write_safetensors(
+            tmp_path / "two_pass.safetensors", SIGNATURES["sdxl"],
+            metadata=self._prompt_graph({
+                "1": {"class_type": "KSampler", "inputs": {
+                    "steps": 10, "cfg": 1.0, "sampler_name": "lcm", "denoise": 1.0}},
+                "2": {"class_type": "KSampler", "inputs": {
+                    "steps": 4, "cfg": 1.0, "sampler_name": "lcm", "denoise": 0.1}},
+            }),
+        )
+        assert infer_sampler_recipe(read_safetensors_header(path))["steps"] == 10
+
+    def test_a_detached_sampler_node_is_picked_up(self, tmp_path):
+        """SamplerCustom graphs keep the sampler in a separate node."""
+        path = write_safetensors(
+            tmp_path / "custom.safetensors", SIGNATURES["sdxl"],
+            metadata=self._prompt_graph({
+                "1": {"class_type": "KSamplerSelect", "inputs": {"sampler_name": "dpmpp_sde"}},
+                "2": {"class_type": "SamplerCustom", "inputs": {"steps": 12, "cfg": 2.0}},
+            }),
+        )
+        recipe = infer_sampler_recipe(read_safetensors_header(path))
+        assert recipe["sampler_name"] == "dpmpp_sde"
+        assert recipe["steps"] == 12
+
+    def test_a_file_with_no_metadata_offers_nothing(self, tmp_path):
+        path = write_safetensors(tmp_path / "plain.safetensors", SIGNATURES["sdxl"])
+        assert infer_sampler_recipe(read_safetensors_header(path)) is None
+
+    def test_nonsense_values_are_rejected(self, tmp_path):
+        """A recipe is only useful if it is sane; otherwise fall back to defaults."""
+        path = write_safetensors(
+            tmp_path / "junk.safetensors", SIGNATURES["sdxl"],
+            metadata=self._prompt_graph({
+                "1": {"class_type": "KSampler", "inputs": {
+                    "steps": 99999, "cfg": -4, "sampler_name": "lcm"}},
+            }),
+        )
+        assert infer_sampler_recipe(read_safetensors_header(path)) is None
+
+    def test_unparsable_metadata_is_survived(self, tmp_path):
+        path = write_safetensors(tmp_path / "bad.safetensors", SIGNATURES["sdxl"],
+                                 metadata={"prompt": "{not json"})
+        assert infer_sampler_recipe(read_safetensors_header(path)) is None
+
+    def test_the_registry_exposes_the_recipe_without_its_provenance(self, tmp_path):
+        root = tmp_path / "models"
+        write_safetensors(
+            root / "checkpoints" / "d.safetensors", SIGNATURES["sdxl"],
+            metadata=self._prompt_graph({
+                "1": {"class_type": "KSampler", "inputs": {
+                    "steps": 10, "cfg": 1.0, "sampler_name": "lcm", "denoise": 1.0}},
+            }),
+        )
+        registry = ModelRegistry.load(root, tmp_path / "ledger.json")
+        registry.scan()
+        recipe = registry.recipe_for("checkpoints/d.safetensors")
+        # source is provenance, not a render argument - it must not be passed on.
+        assert recipe == {"steps": 10, "guidance": 1.0, "sampler_name": "lcm"}
+        assert registry.entries["checkpoints/d.safetensors"]["sampler_recipe"][
+            "source"
+        ] == "embedded prompt"
+
+    def test_a_model_without_a_recipe_returns_an_empty_dict(self, tmp_path):
+        root = tmp_path / "models"
+        write_safetensors(root / "checkpoints" / "p.safetensors", SIGNATURES["sdxl"])
+        registry = ModelRegistry.load(root, tmp_path / "ledger.json")
+        registry.scan()
+        assert registry.recipe_for("checkpoints/p.safetensors") == {}
 
 
 class TestFolderRequirements:

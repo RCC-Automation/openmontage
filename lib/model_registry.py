@@ -41,6 +41,7 @@ __all__ = [
     "default_ledger_path",
     "default_models_root",
     "driver_signature",
+    "infer_sampler_recipe",
     "read_safetensors_header",
     "resolve_driver",
     "resolve_model_name",
@@ -129,6 +130,84 @@ _NO_DRIVER_REASON: dict[str, str] = {
     "krea2": "route exists but the Krea-2 weights are not downloaded",
     "ernie": "route exists but the ERNIE weights are not downloaded",
 }
+
+
+def infer_sampler_recipe(header: Mapping[str, Any] | None) -> dict[str, Any] | None:
+    """The sampler settings a checkpoint's author actually used, from its metadata.
+
+    Many merged checkpoints embed the ComfyUI graph they were produced with in
+    ``__metadata__.prompt``. That graph names the steps, CFG and sampler the
+    model expects - which matters enormously for distilled checkpoints (DMD,
+    LCM, Turbo, Lightning): they are trained for CFG 1 and ~10 steps, and
+    driving one at CFG 4.5 for 35 steps does not merely look worse, it produces
+    saturated, posterised garbage that is easily mistaken for a broken model.
+
+    Returns None when the file says nothing, which is the common case - a
+    recipe is a gift, never a requirement.
+    """
+    if not header:
+        return None
+    meta = header.get("__metadata__") or {}
+    for field in ("prompt", "workflow"):
+        raw = meta.get(field)
+        if not isinstance(raw, str):
+            continue
+        try:
+            graph = json.loads(raw)
+        except ValueError:
+            continue
+        recipe = _recipe_from_graph(graph)
+        if recipe:
+            recipe["source"] = f"embedded {field}"
+            return recipe
+    return None
+
+
+def _recipe_from_graph(graph: Any) -> dict[str, Any] | None:
+    """Pull the base sampling pass out of an API-format ComfyUI graph."""
+    if not isinstance(graph, dict):
+        return None
+    nodes = [n for n in graph.values() if isinstance(n, dict) and "class_type" in n]
+    if not nodes:
+        return None
+
+    # A separate KSamplerSelect carries the sampler for SamplerCustom graphs.
+    detached_sampler = next(
+        (n["inputs"].get("sampler_name") for n in nodes
+         if n.get("class_type") == "KSamplerSelect"
+         and isinstance(n.get("inputs"), dict)),
+        None,
+    )
+
+    best: dict[str, Any] | None = None
+    for node in nodes:
+        if "Sampler" not in str(node.get("class_type", "")):
+            continue
+        inputs = node.get("inputs")
+        if not isinstance(inputs, dict):
+            continue
+        steps, cfg = inputs.get("steps"), inputs.get("cfg")
+        if not isinstance(steps, (int, float)) or not isinstance(cfg, (int, float)):
+            continue
+        if not (1 <= steps <= 150) or not (0 <= cfg <= 30):
+            continue
+        # Skip refinement passes: a low denoise is a second pass over an
+        # existing image, not how the model renders from noise.
+        denoise = inputs.get("denoise")
+        if isinstance(denoise, (int, float)) and denoise < 0.9:
+            continue
+        candidate = {
+            "steps": int(steps),
+            "guidance": float(cfg),
+            "sampler_name": inputs.get("sampler_name") or detached_sampler,
+            "scheduler": inputs.get("scheduler"),
+        }
+        # Prefer the longest base pass when a graph has several.
+        if best is None or candidate["steps"] > best["steps"]:
+            best = candidate
+    if not best or not best.get("sampler_name"):
+        return None
+    return {k: v for k, v in best.items() if v is not None}
 
 
 def _basename(name: str) -> str:
@@ -511,6 +590,9 @@ class ModelRegistry:
                     "eligible": eligible,
                     "reason": reason,
                     "source": "header" if header else "file",
+                    # A checkpoint that states how it wants to be sampled is
+                    # believed over any default we would otherwise impose.
+                    "sampler_recipe": infer_sampler_recipe(header),
                     "runs": dict(_EMPTY_RUNS),
                 }
                 if existing:
@@ -606,6 +688,12 @@ class ModelRegistry:
             return None
         driver = DRIVERS.get(entry.get("family", ""))
         return dict(driver) if driver else None
+
+    def recipe_for(self, key: str) -> dict[str, Any]:
+        """The checkpoint's own sampler settings, or {} when it names none."""
+        entry = self.entries.get(key) or {}
+        recipe = entry.get("sampler_recipe")
+        return {k: v for k, v in dict(recipe).items() if k != "source"} if recipe else {}
 
     def key_for_basename(self, name: str) -> str | None:
         """ComfyUI names models by basename; map one back to a ledger key."""

@@ -178,6 +178,17 @@ class ComfyUIImage(BaseTool):
                 "type": "string",
                 "description": "Path to an OpenMontage binding profile for a custom workflow.",
             },
+            "sampler_name": {
+                "type": "string",
+                "description": (
+                    "KSampler sampler for the bundled SDXL workflow. Distilled "
+                    "checkpoints usually need 'lcm'. Defaults to dpmpp_2m_sde."
+                ),
+            },
+            "scheduler": {
+                "type": "string",
+                "description": "KSampler scheduler for the bundled SDXL workflow.",
+            },
             "checkpoint_name": {
                 "type": "string",
                 "description": (
@@ -424,6 +435,12 @@ class ComfyUIImage(BaseTool):
                 bundled_profile = load_workflow_profile(_PROFILES / _JUGGERNAUT_PROFILE)
                 applied_profile_values = {
                     "checkpoint_name": checkpoint_name,
+                    # Distilled checkpoints (DMD/LCM/Turbo) need their own
+                    # sampler; the shipped dpmpp_2m_sde posterises them even at
+                    # the right CFG. Many carry the author's settings in their
+                    # own metadata - see infer_sampler_recipe.
+                    "sampler_name": str(inputs.get("sampler_name") or "dpmpp_2m_sde"),
+                    "scheduler": str(inputs.get("scheduler") or "karras"),
                     "prompt": inputs["prompt"],
                     "negative_prompt": inputs.get("negative_prompt", ""),
                     "width": width,
