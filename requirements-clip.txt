@@ -20,3 +20,11 @@
 # on first use and are cached.
 torch>=2.0
 transformers>=4.30
+
+# Face identity (ArcFace via InsightFace) for the identity_stability axis.
+# CLIP answers "same look", this answers "same person" - two different
+# questions, and a character brief needs both. Pure-Python wheel; the weights
+# (buffalo_l, ~275 MB) download on first use. Runs on CPU through onnxruntime,
+# ~0.3s per image, deliberately off the render GPU.
+insightface>=1.0
+onnxruntime>=1.16

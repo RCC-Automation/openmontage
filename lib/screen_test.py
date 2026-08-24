@@ -269,17 +269,19 @@ def _embeddings_available() -> bool:
     return True
 
 
-def identity_stability(paths: Sequence[Path]) -> float | None:
-    """How much the same character wanders across seeds. 0..1, higher is steadier.
+def look_consistency(paths: Sequence[Path]) -> float | None:
+    """How steady the whole *look* is across renders. 0..1, higher is steadier.
 
     Mean pairwise cosine similarity of CLIP embeddings, rescaled so that the
     similarity range real faces occupy spreads across the scale. Returns None
     when embeddings are unavailable, so callers can report the gap rather than
     silently scoring on fewer axes.
 
-    **This is the most important number in a screen test.** A stack that scores
-    high here but merely good on looks beats a beautiful one that drifts,
-    because the character has to survive the rest of the film.
+    This is the companion to face identity, not a substitute for it. CLIP sees
+    hair colour, wardrobe, palette and framing - everything ArcFace deliberately
+    throws away - so it catches a render that keeps the face but loses the
+    character. It cannot tell two similar faces apart; that is what
+    ``face_identity_stability`` is for.
     """
     usable = [p for p in paths if Path(p).is_file()]
     if len(usable) < 2 or not _embeddings_available():
@@ -312,6 +314,28 @@ def identity_stability(paths: Sequence[Path]) -> float | None:
     # only approximates identity. A face-recognition embedding cropped to the
     # detected face would measure the thing this axis is named after.
     return max(0.0, min(1.0, (mean - 0.6) / 0.4))
+
+
+def identity_stability(paths: Sequence[Path]) -> float | None:
+    """Whether the same *person* survives across renders. 0..1, or None.
+
+    Delegates to ArcFace via lib.face_identity: detect, align to canonical
+    landmarks, embed with a recogniser trained to separate people rather than
+    pictures. Alignment is what lets a three-quarter angle be compared with a
+    front-on one, so this holds across shot sizes and not only across seeds.
+
+    **This is the most important number in a screen test.** A stack that scores
+    high here but merely good on looks beats a beautiful one that drifts,
+    because the character has to survive the rest of the film.
+
+    None when fewer than two renders contain a detectable face - a wide shot or
+    a back view is missing data, not a drifting character.
+    """
+    try:
+        from lib.face_identity import face_identity_stability
+    except Exception:
+        return None
+    return face_identity_stability(paths)
 
 
 def prompt_adherence(paths: Sequence[Path], prompt: str) -> float | None:
@@ -420,8 +444,12 @@ def technical_score(path: Path) -> float | None:
 # ranking
 # ---------------------------------------------------------------------------
 
+# The identity question is worth 0.45 between them: the face carries most of
+# it, but a render that keeps the face and loses the pink hair and the brass
+# collar is still the wrong character, and ArcFace is blind to exactly that.
 DEFAULT_WEIGHTS: dict[str, float] = {
-    "identity_stability": 0.45,
+    "identity_stability": 0.30,     # ArcFace: is it the same person
+    "look_consistency": 0.15,       # CLIP: is it the same character
     "prompt_adherence": 0.25,
     "technical": 0.20,
     "speed": 0.10,
@@ -444,7 +472,8 @@ class CandidateResult:
 
     def explain(self) -> str:
         parts = []
-        for axis in ("identity_stability", "prompt_adherence", "technical", "speed"):
+        for axis in ("identity_stability", "look_consistency",
+                     "prompt_adherence", "technical", "speed"):
             value = self.scores.get(axis)
             parts.append(f"{axis}={'n/a' if value is None else f'{value:.2f}'}")
         return f"{self.total:.3f}  " + "  ".join(parts)
@@ -469,6 +498,9 @@ def score_candidates(
         paths = [s.path for s in result.shots]
         result.scores["identity_stability"] = (
             None if "identity_stability" in skip else identity_stability(paths)
+        )
+        result.scores["look_consistency"] = (
+            None if "identity_stability" in skip else look_consistency(paths)
         )
         result.scores["prompt_adherence"] = (
             None if "prompt_adherence" in skip else prompt_adherence(paths, prompt)

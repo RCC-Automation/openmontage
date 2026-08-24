@@ -709,3 +709,61 @@ class TestDetailIsAGateNotARanking:
         all_sharp = subject_detail(self._render(tmp_path / "b.png",
                                                 sharp_fraction=1.0))
         assert mostly_blurred == pytest.approx(all_sharp, rel=0.35)
+
+
+class TestTheTwoIdentityAxes:
+    """ArcFace and CLIP answer different questions; neither replaces the other.
+
+    ArcFace sees the face and ignores hair, wardrobe and grade. CLIP sees all of
+    that and cannot separate two similar faces. A brief like "pink hair and a
+    brass filigree collar" needs both - a render can keep the face and lose the
+    character.
+    """
+
+    def test_both_axes_are_scored(self, tmp_path):
+        from lib.screen_test import DEFAULT_WEIGHTS
+
+        assert "identity_stability" in DEFAULT_WEIGHTS
+        assert "look_consistency" in DEFAULT_WEIGHTS
+
+    def test_the_identity_pair_still_carries_the_most_weight(self):
+        from lib.screen_test import DEFAULT_WEIGHTS
+
+        identity = (DEFAULT_WEIGHTS["identity_stability"]
+                    + DEFAULT_WEIGHTS["look_consistency"])
+        assert identity == pytest.approx(0.45)
+        assert identity > DEFAULT_WEIGHTS["prompt_adherence"]
+
+    def test_weights_sum_to_one(self):
+        from lib.screen_test import DEFAULT_WEIGHTS
+
+        assert sum(DEFAULT_WEIGHTS.values()) == pytest.approx(1.0)
+
+    def test_a_faceless_render_is_unmeasured_not_zero(self, tmp_path):
+        """A wide shot or a back view is missing data, not a drifting character."""
+        from lib.face_identity import face_identity_stability
+        import numpy as np
+        from PIL import Image
+
+        paths = []
+        for i in range(2):
+            p = tmp_path / f"noface{i}.png"
+            Image.fromarray(
+                np.full((256, 256, 3), 40 + i * 10, dtype="uint8")
+            ).save(p)
+            paths.append(p)
+        assert face_identity_stability(paths) is None
+
+    def test_one_render_cannot_measure_stability(self, tmp_path):
+        from lib.face_identity import face_identity_stability
+
+        assert face_identity_stability([tmp_path / "only.png"]) is None
+
+    def test_skipping_identity_skips_both_axes(self, tmp_path):
+        result = CandidateResult(
+            candidate=Candidate("m"),
+            shots=[Shot("c", "close_up-key-front", 1, _image(tmp_path / "z.png"), 5.0)],
+        )
+        ranked = score_candidates([result], prompt="x", skip=["identity_stability"])
+        assert ranked[0].scores["identity_stability"] is None
+        assert ranked[0].scores["look_consistency"] is None
