@@ -213,6 +213,60 @@ still is re-rendered with it.
 **Done when.** Every scene of a film has a hero still chosen from a sheet, the
 cast survives in each (measured), and export needs no hand-made still.
 
+### WP2c — reference modes: how the Builder consumes what we made
+
+VRGDG's Builder can generate video in five ways (its *Reference Builder
+Target* dialog, `assets/references/ReferenceBuilderTarget.png`). Each is a
+different answer to one question — **how does the video step know what the
+character and the place look like?** Everything to date has used the first.
+
+| Builder target | What the video step receives | Route | Needs | On this machine |
+|---|---|---|---|---|
+| **I2V / T2V text mapping** | words only, plus the start frame | `i2v` / `t2v` | LTX | **in use** — what the round trip runs |
+| **Flux / Nano image references** | character + location *images* condition the **still** (Klein, Nano B) | `flux_klein` | Flux Klein | installed; measured 0.93 identity on a matched shot (#30) |
+| **LTX Reference-to-Video** | reference images condition the **video render** itself, via the MSR LoRA | `rtv` | `licon\LTX-2.3-Licon-MSR-V1` | **LoRA not on disk** — the settings name it, the folder does not exist |
+| **Ingredients-to-Video** | an *ingredients sheet* — character, props, location tiles — mapped to each scene | `ingredients` | ic-lora-ingredients | installed |
+| **ID-LoRA** | an identity LoRA plus voice samples, dialogue, auto duration — short-film scenes with performance | `id_lora` | id-lora celebvhq / talkvid | both installed |
+
+**Why this matters to the plan.** The first mode is the weakest for continuity:
+the character reaches the video only through the start frame and a sentence.
+The other four are exactly the channels for *the pre-generated things this
+plan produces* — the cast record's references, the hero stills, a location
+reference — to reach the render as images rather than as descriptions. That
+is the quality opportunity, and it is why casting and scene look are worth
+doing before any of it: they make the ingredients.
+
+**Where each lands.**
+
+- **Flux/Nano image references → WP2b (scene look).** The hero still can be
+  generated *with the cast reference in the frame's own model* — Klein with
+  `images` — instead of text-only Z-Image. The scene-look loop should offer
+  both and measure; #30 says the reference wins on matched framing and loses
+  on mismatched, so the shot-family rule applies.
+- **Reference-to-Video and Ingredients → WP3 (export).** `video_model_mode` is
+  project-level, like the image mode; the bridge already writes the segment
+  fields these modes read (`rtv_reference_behavior`,
+  `use_scene_image_as_rtv_ref`, `flux_image_ingredients`,
+  `flux_subject_image_path`, `flux_location_image_path`) as blanks. Export
+  gains a *video mode* input and fills them from the cast record and the
+  look record: character references, the hero still, a location reference,
+  an ingredients sheet built from all three. The MSR LoRA must be fetched
+  first (add to the installer's manifest).
+- **ID-LoRA → L6, two rungs.** Rung one is available today: VRGDG's shipped
+  identity LoRAs plus the `id_lora_reference_builder` (characters, voice
+  samples, locations, dialogue) — that is the talking-character short film.
+  Rung two is L6 proper: train an ID-LoRA **on the cast** so identity no
+  longer depends on framing (#29/#30) — the ROCm blocker stands.
+- **A video screen test** (IDEAS #1's open question). Once two modes work,
+  the same character in the same scene through `i2v`, `rtv` and
+  `ingredients`, measured with the dailies axes, decides per film which mode
+  carries the identity best. Costly — clips, not stills — so only for
+  finalists, and only after the round trip closes.
+
+**Done when.** One film exported in `rtv` or `ingredients` mode from a cast
+record and look records, with no hand-placed references, and the dailies
+identity score beats the same film in `i2v`.
+
 ### WP3 — production skills and the pipeline definition
 
 **What.** One skill per remaining step, then the manifest that orders them.
@@ -318,6 +372,7 @@ measured, recorded, reproducible recipe, chosen by you from a contact sheet.
  WP1 WORKFLOW.md ──────────────────────────────────────────────► (no GPU)
    └─► WP2 casting skill ──────────────► needs GPU, after the LTX render
          └─► WP2b scene-look skill ──────► same instrument, needs a cast
+         └─► WP2c reference modes ───────► lands in WP2b (stills) and WP3 (export)
    └─► WP3 skills + pipeline ───► needs the round trip closed (import)
            └─► WP4 cockpit ─────► needs WP3's checkpoints to exist
    └─► WP5 lab ──────────────────► needs GPU; independent of WP3/WP4
@@ -328,6 +383,7 @@ measured, recorded, reproducible recipe, chosen by you from a contact sheet.
 | WP1 | none | no | one sitting |
 | WP2 | WP1, render finished | yes | one session, plus your reactions |
 | WP2b | WP2 (a cast to put in the scene) | yes | one session, plus your picks |
+| WP2c | WP2b; the MSR LoRA fetched | yes (clips) | one session per mode |
 | WP3 | WP1, round trip closed | little (import, dailies analysis) | two sessions |
 | WP4 | WP3 | no | two sessions |
 | WP5 | WP1 | yes | two sessions |
@@ -353,6 +409,8 @@ back") hid a false assumption for days.
   across seeds) or a stated reason why not; three references.
 - WP2b: every scene of a short film has a hero still picked from a sheet;
   the cast measured present in each; export consumes them untouched.
+- WP2c: a film exported in a reference mode from records alone; its dailies
+  identity score beats the text-mapped version of the same film.
 - WP3: the nine gates stop; a dailies send-back re-exports one scene; the
   board replays the run.
 - WP4: a round started from the board, result on the board, no terminal.
