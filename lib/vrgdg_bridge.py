@@ -27,7 +27,7 @@ import json
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path, PureWindowsPath
-from typing import Any, Iterable, Mapping
+from typing import Any, Iterable, Mapping, MutableMapping, Sequence
 
 SCENE_MAP_FILENAME = "vrgdg_scene_map.json"
 SCENE_MAP_VERSION = "1.0"
@@ -395,6 +395,314 @@ def session_to_edit_decisions(
     tempo = _number(session.get("detected_tempo_bpm"))
     if tempo:
         artifact.setdefault("metadata", {})["detected_tempo_bpm"] = tempo
+    return artifact, warnings
+
+
+# ---------------------------------------------------------------------------
+# the score: beats and lyrics
+# ---------------------------------------------------------------------------
+
+#: VRGDG's two lyric performance modes. ``together`` is every singer at once;
+#: ``cue_map`` hands individual lines to individual performers. The Builder only
+#: honours ``cue_map`` when the segment has two or more performer subjects
+#: selected, so writing it for a solo scene is a no-op rather than an error.
+LYRIC_MODE_TOGETHER = "together"
+LYRIC_MODE_CUE_MAP = "cue_map"
+
+
+def session_to_beat_map(
+    session: Mapping[str, Any], *, source_path: str | None = None
+) -> tuple[dict[str, Any], list[str]]:
+    """Read the timeline's measured rhythm back out as a ``beat_map``.
+
+    VRGDG measures the grid on import of the audio and the Builder snaps every
+    segment to it. Until now only the scalar tempo came home and the markers
+    themselves were dropped, so the grid that timed the film existed nowhere in
+    OpenMontage's record - the whole point of audio-first timing, lost at the
+    door.
+
+    ``measured_by`` says ``vrgdg:analyze_audio`` because that is what produced
+    these numbers. Re-measuring them here with a second analyzer would put the
+    record a few milliseconds off the grid the Builder actually drew.
+    """
+    warnings: list[str] = []
+    beats = sorted(
+        round(float(b), 3)
+        for b in (session.get("beat_markers") or [])
+        if isinstance(b, (int, float))
+    )
+    audio = _as_path(session.get("audio_path"))
+    duration = _number(session.get("audio_duration"))
+
+    if audio is None:
+        warnings.append("the timeline has no audio, so there is no beat map to read")
+        return {}, warnings
+    if not beats:
+        warnings.append(
+            "the timeline has audio but no beat markers - it was never analyzed, "
+            "so nothing downstream can cut to the beat"
+        )
+
+    artifact: dict[str, Any] = {
+        "version": "1.0",
+        "source": source_path or audio.name,
+        "duration_seconds": round(duration, 3),
+        "beats": beats,
+        "measured_by": "vrgdg:analyze_audio",
+        "confidence": beat_confidence(beats),
+    }
+    tempo = _number(session.get("detected_tempo_bpm"))
+    if tempo > 0:
+        artifact["tempo_bpm"] = round(tempo, 3)
+    return artifact, warnings
+
+
+def beat_confidence(beats: Sequence[float]) -> str:
+    """How far to trust a grid. Mirrors ``tools.analysis.audio_beatmap``.
+
+    Kept here rather than imported so the bridge does not depend on a tool.
+    The constants live in one place - if they change there, change them here;
+    the contract test in ``test_vrgdg_bridge`` asserts the two agree, so the
+    pair cannot drift silently.
+    """
+    from tools.analysis.audio_beatmap import _confidence
+
+    return _confidence(list(beats))
+
+
+def _lines_with_times(song: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Every lyric line that knows when it happens, in time order.
+
+    A line without a time cannot be placed on a timeline, so it is not a line
+    this function returns - the caller warns about the difference.
+    """
+    found: list[dict[str, Any]] = []
+    for section in song.get("sections") or []:
+        if not isinstance(section, Mapping):
+            continue
+        label = str(section.get("label") or "")
+        for line in section.get("lines") or []:
+            if not isinstance(line, Mapping):
+                continue
+            start = line.get("start_seconds")
+            end = line.get("end_seconds")
+            if not isinstance(start, (int, float)) or not isinstance(end, (int, float)):
+                continue
+            found.append(
+                {
+                    "text": str(line.get("text") or ""),
+                    "start": float(start),
+                    "end": float(end),
+                    "singer": str(line.get("singer") or "").strip(),
+                    "action_note": str(line.get("action_note") or "").strip(),
+                    "section": label,
+                }
+            )
+    found.sort(key=lambda l: l["start"])
+    return found
+
+
+def apply_song_to_session(
+    session: MutableMapping[str, Any],
+    song: Mapping[str, Any],
+    *,
+    scene_map: SceneMap | None = None,
+) -> list[str]:
+    """Write a song's lyrics onto the timeline, line by line.
+
+    Lines are placed by *overlap* with each segment's own start/end rather than
+    by index, because a segment is a shot and a line is a phrase and there is
+    no reason for them to come in matching counts. A line that straddles a cut
+    belongs to both shots - the singer does not stop singing because the camera
+    changed.
+
+    Only lines that carry times can be placed. A song that has not been aligned
+    yet is a normal state at authoring time, not an error, so it warns and
+    leaves the timeline alone.
+    """
+    warnings: list[str] = []
+    lines = _lines_with_times(song)
+    if not lines:
+        total = sum(
+            len(s.get("lines") or [])
+            for s in (song.get("sections") or [])
+            if isinstance(s, Mapping)
+        )
+        if total:
+            warnings.append(
+                f"none of the song's {total} lines carry times, so none could be "
+                f"placed on the timeline - align the song against the track first"
+            )
+        elif not song.get("instrumental"):
+            warnings.append("the song has no lines to write")
+        return warnings
+
+    segments = timeline_segments(session)
+    if not segments:
+        warnings.append("the session has no segments to write lyrics onto")
+        return warnings
+
+    placed = 0
+    for index, segment in enumerate(segments):
+        start = _number(segment.get("start"))
+        end = _number(segment.get("end"))
+        mine = [l for l in lines if l["end"] > start and l["start"] < end]
+        if not mine:
+            segment["lyric_text"] = ""
+            segment["lyric_section"] = ""
+            segment["lyric_singers"] = []
+            segment["lyric_cue_map"] = []
+            segment["lyric_performance_mode"] = LYRIC_MODE_TOGETHER
+            continue
+
+        placed += len(mine)
+        segment["lyric_text"] = "\n".join(l["text"] for l in mine if l["text"])
+        # One section per segment, chosen by which one covers most of the shot -
+        # not by which one it touches first. A shot that catches the tail of a
+        # verse and then holds the whole chorus is a chorus shot; labelling it
+        # "verse" because the verse arrived first describes it backwards.
+        cover: dict[str, float] = {}
+        for line in mine:
+            overlap = min(line["end"], end) - max(line["start"], start)
+            if overlap > 0:
+                cover[line["section"]] = cover.get(line["section"], 0.0) + overlap
+        segment["lyric_section"] = (
+            max(cover.items(), key=lambda kv: kv[1])[0] if cover else mine[0]["section"]
+        )
+
+        singers = list(dict.fromkeys(l["singer"] for l in mine if l["singer"]))
+        segment["lyric_singers"] = singers
+        segment["lyric_cue_map"] = [
+            {
+                "type": "vocal",
+                "text": l["text"],
+                "action_note": l["action_note"],
+                "singer_id": "",
+                "singer_name": l["singer"],
+                "start": round(l["start"], 3),
+                "end": round(l["end"], 3),
+            }
+            for l in mine
+        ]
+        # cue_map only takes effect in the Builder when the segment has two or
+        # more performer subjects selected. Declaring it for a solo shot would
+        # be ignored, so say "together" and mean it.
+        segment["lyric_performance_mode"] = (
+            LYRIC_MODE_CUE_MAP if len(singers) > 1 else LYRIC_MODE_TOGETHER
+        )
+
+    if placed == 0:
+        warnings.append(
+            "no lyric line overlapped any segment - check that the song's times "
+            "and the timeline share an origin"
+        )
+    session["show_timeline_lyric_notes"] = bool(placed)
+    if scene_map is not None:
+        for index, segment in enumerate(segments):
+            segment_id = str(segment.get("id") or "")
+            if segment_id:
+                scene_map.bind(segment_id, scene_id_for_segment(segment, index, scene_map))
+    return warnings
+
+
+def session_to_song(
+    session: Mapping[str, Any], *, title: str = "Untitled", style: str = ""
+) -> tuple[dict[str, Any], list[str]]:
+    """Read lyrics back off the timeline into a ``song``.
+
+    The return trip matters as much as the outward one: a lyric edited by hand
+    in the Builder is a creative decision, and a decision that does not come
+    home is a decision the record does not have. Sections are rebuilt by
+    grouping consecutive segments that share a ``lyric_section``, which is how
+    they were written out.
+    """
+    warnings: list[str] = []
+    sections: list[dict[str, Any]] = []
+    #: A line that spans a cut is written onto *both* shots on the way out - the
+    #: singer does not stop singing because the camera changed. Coming back it
+    #: is still one line, so the second copy is dropped. Identity is (text,
+    #: start, end): a chorus line sung twice has two different starts and
+    #: survives as two lines, which is right.
+    seen: set[tuple[str, Any, Any]] = set()
+
+    for index, segment in enumerate(timeline_segments(session)):
+        cues = segment.get("lyric_cue_map")
+        text = str(segment.get("lyric_text") or "").strip()
+        if not cues and not text:
+            continue
+
+        label = str(segment.get("lyric_section") or "verse")
+        lines: list[dict[str, Any]] = []
+        if isinstance(cues, list) and cues:
+            for cue in cues:
+                if not isinstance(cue, Mapping):
+                    continue
+                if str(cue.get("type") or "vocal") == "instrumental":
+                    continue
+                line: dict[str, Any] = {"text": str(cue.get("text") or "")}
+                for src, dst in (("start", "start_seconds"), ("end", "end_seconds")):
+                    value = cue.get(src)
+                    if isinstance(value, (int, float)):
+                        line[dst] = round(float(value), 3)
+                singer = str(cue.get("singer_name") or "").strip()
+                if singer:
+                    line["singer"] = singer
+                note = str(cue.get("action_note") or "").strip()
+                if note:
+                    line["action_note"] = note
+                key = (line["text"], line.get("start_seconds"), line.get("end_seconds"))
+                if line["text"] and key not in seen:
+                    seen.add(key)
+                    lines.append(line)
+        else:
+            # No cue map - the Builder was used in "together" mode, so the whole
+            # segment is one block of text with the segment's own timing.
+            warnings.append(
+                f"segment {index + 1} has lyric text but no cue map, so its lines "
+                f"come back with the shot's timing rather than their own"
+            )
+            for chunk in (l for l in text.splitlines() if l.strip()):
+                line = {
+                    "text": chunk.strip(),
+                    "start_seconds": round(_number(segment.get("start")), 3),
+                    "end_seconds": round(_number(segment.get("end")), 3),
+                }
+                key = (line["text"], line["start_seconds"], line["end_seconds"])
+                if key not in seen:
+                    seen.add(key)
+                    lines.append(line)
+
+        if not lines:
+            continue
+        if sections and sections[-1]["label"] == label:
+            sections[-1]["lines"].extend(lines)
+            sections[-1]["end_seconds"] = max(
+                sections[-1]["end_seconds"], _number(segment.get("end"))
+            )
+        else:
+            sections.append(
+                {
+                    "label": label,
+                    "start_seconds": round(_number(segment.get("start")), 3),
+                    "end_seconds": round(_number(segment.get("end")), 3),
+                    "lines": lines,
+                }
+            )
+
+    if not sections:
+        warnings.append("the timeline carries no lyrics")
+
+    artifact: dict[str, Any] = {
+        "version": "1.0",
+        "title": title,
+        "style": style,
+        "sections": sections,
+    }
+    if not sections:
+        artifact["instrumental"] = True
+        artifact["sections"] = [{"label": "instrumental", "lines": []}]
+    for section in artifact["sections"]:
+        section["end_seconds"] = round(float(section.get("end_seconds", 0.0)), 3)
     return artifact, warnings
 
 

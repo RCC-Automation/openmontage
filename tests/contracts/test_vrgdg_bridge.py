@@ -22,10 +22,16 @@ from lib.vrgdg_bridge import (
     segment_prompt,
     segment_video_path,
     session_summary,
+    LYRIC_MODE_CUE_MAP,
+    LYRIC_MODE_TOGETHER,
     MUSIC_ASSET_ID,
+    apply_song_to_session,
+    beat_confidence,
     music_asset_id,
     session_to_asset_manifest,
+    session_to_beat_map,
     session_to_edit_decisions,
+    session_to_song,
     timeline_segments,
 )
 from schemas.artifacts import validate_artifact
@@ -73,6 +79,9 @@ def _session(vrgdg_media: dict[str, Path]) -> dict:
         "audio_path": str(vrgdg_media["folder"] / "project_audio" / "project_audio.wav"),
         "audio_duration": 12.0,
         "detected_tempo_bpm": 122.0,
+        # A real analyzed session carries the grid, not just the tempo. Leaving
+        # it out is what let the markers be dropped on import unnoticed.
+        "beat_markers": [round(0.25 + i * 0.4918, 3) for i in range(24)],
         "video_engine": "ltx",
         "image_model_mode": "zimage",
         "segments": [
@@ -400,6 +409,277 @@ def test_render_runtime_is_required_and_passed_through(vrgdg_media):
 
 
 # ---------------------------------------------------------------------------
+# the score: the beat grid comes home, and lyrics cross both ways
+# ---------------------------------------------------------------------------
+
+def _song() -> dict:
+    """A two-singer song timed against the 9-second fixture timeline."""
+    return {
+        "version": "1.0",
+        "title": "Clockwork",
+        "style": "cinematic synthwave, female vocals",
+        "sections": [
+            {
+                "label": "verse",
+                "lines": [
+                    {"text": "The gears begin to turn",
+                     "start_seconds": 0.5, "end_seconds": 2.0, "singer": "Heroine"},
+                    {"text": "and the dust remembers",
+                     "start_seconds": 2.0, "end_seconds": 3.8, "singer": "Heroine",
+                     "action_note": "she looks up"},
+                ],
+            },
+            {
+                "label": "chorus",
+                "lines": [
+                    {"text": "Wake the brass",
+                     "start_seconds": 4.5, "end_seconds": 6.0, "singer": "Heroine"},
+                    {"text": "wake the light",
+                     "start_seconds": 6.0, "end_seconds": 8.5, "singer": "Machinist"},
+                ],
+            },
+        ],
+    }
+
+
+def test_beat_map_validates_against_the_real_schema(vrgdg_media):
+    beat_map, warnings = session_to_beat_map(_session(vrgdg_media))
+    validate_artifact("beat_map", beat_map)
+    assert warnings == []
+
+
+def test_the_beat_grid_comes_home_not_just_the_tempo(vrgdg_media):
+    """The regression this closes: export wrote 19 markers, import read 1 number.
+
+    The grid is what audio-first timing *is*. A film whose record carries only
+    a scalar tempo cannot say why any cut is where it is.
+    """
+    session = _session(vrgdg_media)
+    session["beat_markers"] = [0.5, 1.0, 1.5, 2.0, 2.5]
+    beat_map, _ = session_to_beat_map(session)
+    assert beat_map["beats"] == [0.5, 1.0, 1.5, 2.0, 2.5]
+    assert beat_map["tempo_bpm"] == 122.0
+
+
+def test_beats_come_back_sorted(vrgdg_media):
+    session = _session(vrgdg_media)
+    session["beat_markers"] = [2.0, 0.5, 1.5, 1.0]
+    beat_map, _ = session_to_beat_map(session)
+    assert beat_map["beats"] == [0.5, 1.0, 1.5, 2.0]
+
+
+def test_audio_with_no_markers_warns_rather_than_claiming_a_grid(vrgdg_media):
+    session = _session(vrgdg_media)
+    session["beat_markers"] = []
+    beat_map, warnings = session_to_beat_map(session)
+    assert beat_map["beats"] == []
+    assert beat_map["confidence"] == "none"
+    assert any("never analyzed" in w for w in warnings)
+
+
+def test_a_project_with_no_audio_yields_no_beat_map(vrgdg_media):
+    session = _session(vrgdg_media)
+    session["audio_path"] = ""
+    beat_map, warnings = session_to_beat_map(session)
+    assert beat_map == {}
+    assert any("no audio" in w for w in warnings)
+
+
+def test_beat_confidence_agrees_with_the_tool(vrgdg_media):
+    """The bridge and the tool must not drift apart on what 'strong' means."""
+    from tools.analysis.audio_beatmap import _confidence
+    steady = [i * 0.5 for i in range(20)]
+    assert beat_confidence(steady) == _confidence(steady) == "strong"
+
+
+def test_lyrics_land_on_the_segments_they_overlap(vrgdg_media):
+    session = _session(vrgdg_media)
+    warnings = apply_song_to_session(session, _song())
+    assert warnings == []
+    by_id = {s["id"]: s for s in session["segments"]}
+    # seg_aaa is 0-4, seg_bbb is 4-9
+    assert "The gears begin to turn" in by_id["seg_aaa"]["lyric_text"]
+    assert "Wake the brass" in by_id["seg_bbb"]["lyric_text"]
+    assert "Wake the brass" not in by_id["seg_aaa"]["lyric_text"]
+
+
+def test_a_line_straddling_a_cut_belongs_to_both_shots(vrgdg_media):
+    """The singer does not stop singing because the camera changed."""
+    session = _session(vrgdg_media)
+    song = _song()
+    song["sections"][0]["lines"] = [
+        {"text": "across the cut", "start_seconds": 3.0, "end_seconds": 5.0}
+    ]
+    song["sections"][1]["lines"] = []
+    apply_song_to_session(session, song)
+    by_id = {s["id"]: s for s in session["segments"]}
+    assert "across the cut" in by_id["seg_aaa"]["lyric_text"]
+    assert "across the cut" in by_id["seg_bbb"]["lyric_text"]
+
+
+def test_a_straddling_line_comes_back_once_not_twice(vrgdg_media):
+    """Found by the POC: 4 lines out, 5 back.
+
+    A line spanning a cut is deliberately written onto both shots - the singer
+    does not stop singing because the camera changed. Coming home it is still
+    one line, and a song that grows a line every time it crosses the seam is a
+    song nobody can edit.
+    """
+    session = _session(vrgdg_media)
+    song = _song()
+    song["sections"][0]["lines"] = [
+        {"text": "across the cut", "start_seconds": 3.0, "end_seconds": 5.0}
+    ]
+    song["sections"][1]["lines"] = []
+    apply_song_to_session(session, song)
+    placed = [s for s in session["segments"] if s.get("lyric_text")]
+    assert len(placed) == 2, "the line should be on both shots"
+    back, _ = session_to_song(session)
+    texts = [l["text"] for sec in back["sections"] for l in sec["lines"]]
+    assert texts == ["across the cut"]
+
+
+def test_a_line_repeated_later_survives_as_two_lines(vrgdg_media):
+    """De-duplication keys on time, not just text.
+
+    The most repeated line in any song is the chorus hook. Collapsing it to one
+    line because the words match would lose every repeat.
+    """
+    session = _session(vrgdg_media)
+    song = _song()
+    song["sections"][0]["lines"] = [
+        {"text": "wake the light", "start_seconds": 0.5, "end_seconds": 2.0},
+    ]
+    song["sections"][1]["lines"] = [
+        {"text": "wake the light", "start_seconds": 5.0, "end_seconds": 6.5},
+    ]
+    apply_song_to_session(session, song)
+    back, _ = session_to_song(session)
+    lines = [(l["text"], l["start_seconds"]) for sec in back["sections"] for l in sec["lines"]]
+    assert lines == [("wake the light", 0.5), ("wake the light", 5.0)]
+
+
+def test_the_section_label_is_the_one_that_covers_most_of_the_shot(vrgdg_media):
+    """Found by the POC: a chorus shot was labelled 'verse'.
+
+    seg_bbb runs 4-9s. It catches 0.84s of the verse's tail and then holds
+    4.16s of chorus. Labelling it by what arrived first describes it backwards.
+    """
+    session = _session(vrgdg_media)
+    apply_song_to_session(session, _song())
+    by_id = {s["id"]: s for s in session["segments"]}
+    assert by_id["seg_bbb"]["lyric_section"] == "chorus"
+
+
+def test_the_section_label_travels_with_the_lines(vrgdg_media):
+    session = _session(vrgdg_media)
+    apply_song_to_session(session, _song())
+    by_id = {s["id"]: s for s in session["segments"]}
+    assert by_id["seg_aaa"]["lyric_section"] == "verse"
+    assert by_id["seg_bbb"]["lyric_section"] == "chorus"
+
+
+def test_cue_map_carries_times_and_singers(vrgdg_media):
+    session = _session(vrgdg_media)
+    apply_song_to_session(session, _song())
+    cues = {s["id"]: s["lyric_cue_map"] for s in session["segments"] if s.get("lyric_cue_map")}
+    first = cues["seg_aaa"][0]
+    assert first["type"] == "vocal"
+    assert first["singer_name"] == "Heroine"
+    assert first["start"] == 0.5 and first["end"] == 2.0
+    assert cues["seg_aaa"][1]["action_note"] == "she looks up"
+
+
+def test_one_singer_is_together_and_two_is_a_cue_map(vrgdg_media):
+    """cue_map only takes effect in the Builder with two performers selected.
+
+    Declaring it for a solo shot would be silently ignored, so say what is true.
+    """
+    session = _session(vrgdg_media)
+    apply_song_to_session(session, _song())
+    by_id = {s["id"]: s for s in session["segments"]}
+    assert by_id["seg_aaa"]["lyric_performance_mode"] == LYRIC_MODE_TOGETHER
+    assert by_id["seg_aaa"]["lyric_singers"] == ["Heroine"]
+    assert by_id["seg_bbb"]["lyric_performance_mode"] == LYRIC_MODE_CUE_MAP
+    assert by_id["seg_bbb"]["lyric_singers"] == ["Heroine", "Machinist"]
+
+
+def test_a_song_without_times_cannot_be_placed_and_says_so(vrgdg_media):
+    session = _session(vrgdg_media)
+    song = _song()
+    for section in song["sections"]:
+        for line in section["lines"]:
+            line.pop("start_seconds")
+            line.pop("end_seconds")
+    warnings = apply_song_to_session(session, song)
+    assert any("none of the song's 4 lines carry times" in w for w in warnings)
+    assert not any(s.get("lyric_text") for s in session["segments"])
+
+
+def test_lyrics_that_miss_the_timeline_entirely_warn(vrgdg_media):
+    session = _session(vrgdg_media)
+    song = _song()
+    for section in song["sections"]:
+        for line in section["lines"]:
+            line["start_seconds"] += 500
+            line["end_seconds"] += 500
+    warnings = apply_song_to_session(session, song)
+    assert any("no lyric line overlapped any segment" in w for w in warnings)
+
+
+def test_lyrics_come_back_off_the_timeline(vrgdg_media):
+    """A lyric edited by hand in the Builder is a decision; it has to come home."""
+    session = _session(vrgdg_media)
+    apply_song_to_session(session, _song())
+    song, warnings = session_to_song(session, title="Clockwork")
+    validate_artifact("song", song)
+    assert warnings == []
+    texts = [l["text"] for s in song["sections"] for l in s["lines"]]
+    assert "The gears begin to turn" in texts
+    assert "wake the light" in texts
+
+
+def test_the_round_trip_preserves_singers_and_times(vrgdg_media):
+    session = _session(vrgdg_media)
+    apply_song_to_session(session, _song())
+    song, _ = session_to_song(session)
+    lines = {l["text"]: l for s in song["sections"] for l in s["lines"]}
+    assert lines["wake the light"]["singer"] == "Machinist"
+    assert lines["The gears begin to turn"]["start_seconds"] == 0.5
+    assert lines["and the dust remembers"]["action_note"] == "she looks up"
+
+
+def test_sections_regroup_by_label_on_the_way_back(vrgdg_media):
+    session = _session(vrgdg_media)
+    apply_song_to_session(session, _song())
+    song, _ = session_to_song(session)
+    assert [s["label"] for s in song["sections"]] == ["verse", "chorus"]
+
+
+def test_together_mode_text_comes_back_with_a_warning(vrgdg_media):
+    """No cue map means the Builder was used in 'together' mode.
+
+    The lines survive but only carry the shot's timing, which is worse than
+    their own - so the loss is reported rather than hidden.
+    """
+    session = _session(vrgdg_media)
+    session["segments"][1]["lyric_text"] = "hand typed in the builder"
+    session["segments"][1]["lyric_section"] = "verse"
+    session["segments"][1]["lyric_cue_map"] = []
+    song, warnings = session_to_song(session)
+    validate_artifact("song", song)
+    assert any("no cue map" in w for w in warnings)
+    assert song["sections"][0]["lines"][0]["text"] == "hand typed in the builder"
+
+
+def test_a_timeline_with_no_lyrics_reads_as_instrumental(vrgdg_media):
+    song, warnings = session_to_song(_session(vrgdg_media))
+    validate_artifact("song", song)
+    assert song["instrumental"] is True
+    assert any("carries no lyrics" in w for w in warnings)
+
+
+# ---------------------------------------------------------------------------
 # a fresh, empty project - the state the user's own project is in today
 # ---------------------------------------------------------------------------
 
@@ -476,7 +756,7 @@ def test_tool_refuses_a_project_dir_that_does_not_exist(tmp_path):
     assert "init_project" in result.error
 
 
-def test_tool_writes_the_three_artifacts(project_dir, vrgdg_media, monkeypatch):
+def test_tool_writes_every_artifact_the_session_can_supply(project_dir, vrgdg_media, monkeypatch):
     from tools.video import vrgdg_project_sync as mod
 
     tool = mod.VRGDGProjectSync()
@@ -489,7 +769,12 @@ def test_tool_writes_the_three_artifacts(project_dir, vrgdg_media, monkeypatch):
     )
     assert result.success is True, result.error
     names = {Path(p).name for p in result.artifacts}
-    assert names == {"asset_manifest.json", "edit_decisions.json", "vrgdg_scene_map.json"}
+    assert names == {
+        "asset_manifest.json",
+        "edit_decisions.json",
+        "beat_map.json",
+        "vrgdg_scene_map.json",
+    }
     written = json.loads((project_dir / "artifacts" / "asset_manifest.json").read_text())
     validate_artifact("asset_manifest", written)
 

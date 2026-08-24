@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/beat_map",
+  "title": "Beat Map",
+  "description": "The measured rhythm of a film's audio track. Produced by audio_beatmap at the score stage and consumed by scene_plan, which lands scene boundaries on its beats. Every number here is measured from the delivered audio - never copied from what a generator was asked for. ACE-Step has been asked for 90 BPM on this machine and delivered 117.5 (DECISIONS, PLAN WP6), so a plan timed from the request rather than the measurement is wrong by 30%.",
+  "type": "object",
+  "required": ["version", "source", "duration_seconds", "beats", "measured_by"],
+  "properties": {
+    "version": { "type": "string", "const": "1.0" },
+    "source": {
+      "type": "string",
+      "description": "Project-relative path of the audio this was measured from, e.g. assets/music/project_audio.mp3"
+    },
+    "duration_seconds": { "type": "number", "minimum": 0 },
+    "tempo_bpm": {
+      "type": "number",
+      "minimum": 1,
+      "description": "Measured tempo. Absent when the track has no stable pulse - which is honest, not a failure. A caller with no tempo should pace by phrase and never hard-cut to a grid."
+    },
+    "requested_tempo_bpm": {
+      "type": "number",
+      "minimum": 1,
+      "description": "What the generator was asked for, when the track was generated. Recorded only so the gap with tempo_bpm stays visible; nothing may time from this field."
+    },
+    "beats": {
+      "type": "array",
+      "items": { "type": "number", "minimum": 0 },
+      "description": "Beat positions in seconds from the start of the track, ascending."
+    },
+    "downbeats": {
+      "type": "array",
+      "items": { "type": "number", "minimum": 0 },
+      "description": "Bar starts in seconds, a subset of beats. A cut on a downbeat reads stronger than a cut on any other beat."
+    },
+    "sections": {
+      "type": "array",
+      "description": "Musical structure - intro, verse, chorus. Scene groupings should respect these before they respect individual beats.",
+      "items": {
+        "type": "object",
+        "required": ["label", "start_seconds", "end_seconds"],
+        "properties": {
+          "label": { "type": "string" },
+          "start_seconds": { "type": "number", "minimum": 0 },
+          "end_seconds": { "type": "number", "minimum": 0 },
+          "energy": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Relative loudness/density of this section, 0-1 within this track only. Not comparable across tracks."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "measured_by": {
+      "type": "string",
+      "description": "Which analyzer produced this, e.g. 'vrgdg:analyze_audio' or 'librosa'. One analyzer per map - never merge two, and never re-measure by ear."
+    },
+    "confidence": {
+      "type": "string",
+      "enum": ["strong", "weak", "none"],
+      "description": "How much the grid can be trusted. 'strong': a genuine pulse, safe to hard-cut to. 'weak': a metronome the tracker imposed on calm music - pace by phrase instead. 'none': no usable rhythm. Guessing this as 'strong' is how a calm track gets cut like a dance track."
+    },
+    "metadata": { "type": "object" }
+  },
+  "additionalProperties": false
+}

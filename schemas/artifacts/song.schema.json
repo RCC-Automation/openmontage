@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/song",
+  "title": "Song",
+  "description": "The words and intent of a film's music, authored at the score stage. This is the half VRGDG cannot supply: its Builder holds lyrics per timeline segment but never writes them. Sections and lines here are what the export writes into the Builder's lyric fields, and what a karaoke burn later reads times from.",
+  "type": "object",
+  "required": ["version", "title", "style", "sections"],
+  "properties": {
+    "version": { "type": "string", "const": "1.0" },
+    "title": { "type": "string", "minLength": 1 },
+    "style": {
+      "type": "string",
+      "description": "Style/mood/genre as the generator wants it - comma-separated tags work best for ACE-Step, e.g. 'driving synthwave, female vocals, analog bass'. Do not put a tempo here; use requested_tempo_bpm."
+    },
+    "instrumental": {
+      "type": "boolean",
+      "default": false,
+      "description": "True for a score with no vocal. Sections may then carry empty lines and exist only to mark structure."
+    },
+    "language": { "type": "string", "default": "en" },
+    "requested_tempo_bpm": {
+      "type": "number",
+      "minimum": 1,
+      "description": "What to ask the generator for. The delivered tempo is measured separately into beat_map and is the only one anything may time from."
+    },
+    "key": { "type": "string", "description": "e.g. 'C major'" },
+    "sections": {
+      "type": "array",
+      "minItems": 1,
+      "description": "The song in order. Section labels double as the generator's structure tags.",
+      "items": {
+        "type": "object",
+        "required": ["label", "lines"],
+        "properties": {
+          "id": { "type": "string" },
+          "label": {
+            "type": "string",
+            "description": "intro, verse, chorus, bridge, outro, instrumental, drop - written as the generator expects them"
+          },
+          "start_seconds": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Filled in after the track is generated and aligned. Absent before that, which is the normal state at authoring time."
+          },
+          "end_seconds": { "type": "number", "minimum": 0 },
+          "lines": {
+            "type": "array",
+            "description": "Empty for an instrumental section.",
+            "items": {
+              "type": "object",
+              "required": ["text"],
+              "properties": {
+                "text": { "type": "string" },
+                "start_seconds": { "type": "number", "minimum": 0 },
+                "end_seconds": { "type": "number", "minimum": 0 },
+                "singer": {
+                  "type": "string",
+                  "description": "Name of the character singing this line. Must match a character named in the cast_record - VRGDG resolves singers against the same reference subjects casting already writes, so no separate singer identity exists (PLAN WP6)."
+                },
+                "delivery": {
+                  "type": "string",
+                  "description": "Vocal direction for the generator, e.g. 'whispered', 'belted', 'harmonies'. Kept apart from text so the words stay clean for display and captions."
+                },
+                "action_note": {
+                  "type": "string",
+                  "description": "What the singer is doing on this line. Crosses to VRGDG's lyric cue action_note; ignored by the audio generator."
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "source": {
+      "type": "string",
+      "enum": ["generated", "library", "provided"],
+      "description": "generated: made by a music tool here. library: taken from music_library/. provided: the user brought the file. A provided or library track still gets a song record if its words matter."
+    },
+    "asset_id": {
+      "type": "string",
+      "description": "Id of the audio in the asset_manifest once the track exists. Absent while the song is still only words."
+    },
+    "metadata": { "type": "object" }
+  },
+  "additionalProperties": false
+}

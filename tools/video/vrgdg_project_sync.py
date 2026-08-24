@@ -41,13 +41,16 @@ from lib.vrgdg_bridge import (
     SceneMap,
     VRGDGBridgeError,
     apply_scene_plan_to_session,
+    apply_song_to_session,
     approved_images_by_scene,
     music_asset_id,
     scene_plan_duration,
     scene_plan_to_srt,
     session_summary,
     session_to_asset_manifest,
+    session_to_beat_map,
     session_to_edit_decisions,
+    session_to_song,
     timeline_segments,
 )
 
@@ -174,6 +177,26 @@ class VRGDGProjectSync(BaseTool):
                     "given - real audio replaces the scaffold."
                 ),
             },
+            "song": {
+                "type": "object",
+                "description": (
+                    "export: the song artifact, inline. Its lines are written onto "
+                    "the timeline as VRGDG lyric fields, placed by overlap with each "
+                    "segment's own start/end. Only lines carrying times can be placed."
+                ),
+            },
+            "song_path": {
+                "type": "string",
+                "description": (
+                    "export: path to song.json. Defaults to "
+                    "<project_dir>/artifacts/song.json when that file exists; "
+                    "inline song wins over the file."
+                ),
+            },
+            "song_title": {
+                "type": "string",
+                "description": "import: title for the song artifact read back off the timeline.",
+            },
             "audio_path": {
                 "type": "string",
                 "description": (
@@ -232,10 +255,12 @@ class VRGDGProjectSync(BaseTool):
     idempotency_key_fields = ["operation", "project_folder", "project_dir"]
     side_effects = [
         "import: copies stills, clips and the music track into <project_dir>/assets/",
-        "import: writes artifacts/asset_manifest.json, artifacts/edit_decisions.json "
+        "import: writes artifacts/asset_manifest.json, artifacts/edit_decisions.json, "
+        "artifacts/beat_map.json, artifacts/song.json (when the timeline has lyrics) "
         "and artifacts/vrgdg_scene_map.json",
         "export: creates a VRGDG project and replaces its timeline",
         "export: writes a silent audio bed and an SRT into that project",
+        "export: writes the song's lyrics onto the timeline segments",
     ]
     user_visible_verification = [
         "Check the scene count and timeline length against the VRGDG Builder",
@@ -252,7 +277,13 @@ class VRGDGProjectSync(BaseTool):
     def get_info(self) -> dict[str, Any]:
         info = super().get_info()
         info["direction"] = "vrgdg -> openmontage (read only)"
-        info["produces"] = ["asset_manifest", "edit_decisions", "vrgdg_scene_map"]
+        info["produces"] = [
+            "asset_manifest",
+            "edit_decisions",
+            "beat_map",
+            "song",
+            "vrgdg_scene_map",
+        ]
         return info
 
     def estimate_cost(self, inputs: dict[str, Any]) -> float:
@@ -327,12 +358,32 @@ class VRGDGProjectSync(BaseTool):
             music_asset_id=music_asset_id(manifest),
         )
 
+        # The score comes home too. The grid VRGDG measured is what timed the
+        # film; leaving it in the session means OpenMontage's record cannot say
+        # why a cut is where it is. Lyrics edited by hand in the Builder are
+        # creative decisions, and a decision that does not come back is one the
+        # record does not have.
+        music = next((a for a in manifest["assets"] if a["type"] == "music"), None)
+        beat_map, beat_warnings = session_to_beat_map(
+            session, source_path=music["path"] if music else None
+        )
+        song, song_warnings = session_to_song(
+            session, title=str(inputs.get("song_title") or project_dir.name)
+        )
+        has_lyrics = any(s.get("lines") for s in song.get("sections") or [])
+
+        artifacts_out: dict[str, Any] = {
+            "asset_manifest.json": manifest,
+            "edit_decisions.json": cut,
+        }
+        if beat_map:
+            artifacts_out["beat_map.json"] = beat_map
+        if has_lyrics:
+            artifacts_out["song.json"] = song
+
         written: list[str] = []
         if inputs.get("write_artifacts", True):
-            written = self._write_artifacts(
-                project_dir,
-                {"asset_manifest.json": manifest, "edit_decisions.json": cut},
-            )
+            written = self._write_artifacts(project_dir, artifacts_out)
             written.append(
                 str(scene_map.save(project_dir, vrgdg_project_folder=project_folder))
             )
@@ -346,8 +397,13 @@ class VRGDGProjectSync(BaseTool):
                 "summary": session_summary(session),
                 "asset_manifest": manifest,
                 "edit_decisions": cut,
+                "beat_map": beat_map or None,
+                "song": song if has_lyrics else None,
                 "scene_map": scene_map.pairs,
-                "warnings": manifest_warnings + cut_warnings,
+                "warnings": (
+                    manifest_warnings + cut_warnings + beat_warnings
+                    + (song_warnings if has_lyrics else [])
+                ),
             },
             artifacts=written,
             cost_usd=0.0,
@@ -488,6 +544,16 @@ class VRGDGProjectSync(BaseTool):
                         extras["audio_path"] = str(landed)
                 except VRGDGError as exc:
                     warnings.append(f"could not create the silent audio bed: {exc}")
+
+        # Lyrics go on last, after the audio: a line is placed by where it falls
+        # in time, so the timeline has to be settled before it can be asked.
+        song = self._load_song(inputs, project_dir, warnings)
+        if song:
+            lyric_warnings = apply_song_to_session(session, song, scene_map=scene_map)
+            warnings.extend(lyric_warnings)
+            extras["lyrics_written"] = any(
+                seg.get("lyric_text") for seg in timeline_segments(session)
+            )
 
         if inputs.get("scaffold_audio_and_srt", True) or audio_input:
             srt = scene_plan_to_srt(scene_plan)
@@ -659,6 +725,33 @@ class VRGDGProjectSync(BaseTool):
         elif isinstance(casting.get("reference"), str) and casting["reference"].strip():
             copied = stage(casting["reference"], "reference")
             casting["reference"] = copied or ""
+
+    def _load_song(
+        self,
+        inputs: dict[str, Any],
+        project_dir: Path,
+        warnings: list[str],
+    ) -> dict[str, Any] | None:
+        """The song to write onto the timeline, inline or from the project.
+
+        Silent when there is none: a film without lyrics is the normal case,
+        not a degraded one.
+        """
+        song = inputs.get("song")
+        if isinstance(song, dict):
+            return song
+        explicit = str(inputs.get("song_path") or "").strip()
+        path = Path(explicit) if explicit else project_dir / "artifacts" / "song.json"
+        if not path.is_file():
+            if explicit:
+                warnings.append(f"song: {path} does not exist; no lyrics were written")
+            return None
+        try:
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            warnings.append(f"song: unreadable at {path}: {exc}; no lyrics were written")
+            return None
+        return loaded if isinstance(loaded, dict) else None
 
     def _apply_project_audio(
         self,

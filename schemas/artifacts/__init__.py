@@ -14,6 +14,9 @@ ARTIFACT_NAMES = [
     "research_brief",
     "proposal_packet",
     "brief",
+    "song",
+    "beat_map",
+    "cast_record",
     "script",
     "character_design",
     "rig_plan",
@@ -44,7 +47,16 @@ def load_schema(name: str) -> dict:
 
 
 def validate_artifact(name: str, data: dict[str, Any]) -> None:
-    """Validate artifact data against its schema. Raises on failure."""
+    """Validate artifact data against its schema. Raises on failure.
+
+    Note for anyone adding an artifact: registering the name in
+    ``ARTIFACT_NAMES`` is what makes checkpoints validate it. A name absent
+    from that list is *silently skipped* by
+    ``lib.checkpoint._validate_artifacts_for_stage`` - the artifact is written
+    to the checkpoint unchecked. ``cast_record`` sat in that state through a
+    whole production, which is how a record with an absolute reference path
+    reached the export unremarked.
+    """
     schema = load_schema(name)
     jsonschema.validate(instance=data, schema=schema)
 

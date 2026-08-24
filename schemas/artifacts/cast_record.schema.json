@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/cast_record",
+  "title": "Cast Record",
+  "description": "A locked character identity - the verdict of the casting stage. Casting is not choosing a model, it is fixing an identity; this is what every later shot is generated against and what the continuity check measures drift from. The export reads it to write per-scene model settings, a fixed seed and reference images into a VRGDG timeline (DECISIONS #32).",
+  "type": "object",
+  "required": ["version", "character", "candidate", "seed"],
+  "properties": {
+    "version": { "type": "string", "const": "1.0" },
+    "character": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The character's name. Also how a song line names its singer."
+    },
+    "brief": {
+      "type": "string",
+      "description": "The description the identity was cast against. Every scene must re-state the character rather than referring back to one (DECISIONS #29, #33) - this is the text to re-state."
+    },
+    "candidate": {
+      "type": "object",
+      "required": ["model"],
+      "description": "The winning stack. Produced by screen_test's Candidate.as_dict().",
+      "properties": {
+        "id": { "type": "string" },
+        "label": { "type": "string" },
+        "model": {
+          "type": "string",
+          "description": "Model filename as ComfyUI lists it. The engine is resolved from the model registry by header, never guessed from this name (DECISIONS #18)."
+        },
+        "loras": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name"],
+            "properties": {
+              "name": { "type": "string" },
+              "strength": { "type": "number" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "settings": {
+          "type": "object",
+          "description": "Sampler settings the candidate ran with. Transplants only into a graph of the same shape (DECISIONS #25)."
+        }
+      },
+      "additionalProperties": true
+    },
+    "engine": {
+      "type": "string",
+      "description": "Graph source that can drive this model, e.g. zimage, flux_klein. Normally resolved from the model registry rather than stated here; an explicit value overrides that."
+    },
+    "seed": {
+      "type": "integer",
+      "description": "Fixed so a render reproduces byte-identically. It is reproducibility, not identity - holding the seed and changing the prompt drifts the face MORE than holding the prompt and changing the seed (DECISIONS #29)."
+    },
+    "references": {
+      "type": "object",
+      "description": "One approved reference image per shot family. A reference is worth about 4x a description on a matched shot, but collapses when the framing changes - which is why these are per family and not one image (DECISIONS #30).",
+      "properties": {
+        "close_up": { "type": "string" },
+        "medium": { "type": "string" },
+        "wide": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "reference": {
+      "type": "string",
+      "description": "LEGACY - a single reference image, no shot family. Written by screen_test.cast_record() and still accepted by the export. Prefer `references`, which DECISIONS #30 showed is what actually holds identity across framings."
+    },
+    "measured": {
+      "type": "object",
+      "description": "The axes that were actually computed for the winner. Absent keys mean not measured, never zero - the ranking reweights around what it could not compute rather than assuming it.",
+      "properties": {
+        "identity_stability": { "type": "number" },
+        "look_consistency": { "type": "number" },
+        "prompt_adherence": { "type": "number" },
+        "technical": { "type": "number" },
+        "speed": { "type": "number" }
+      },
+      "additionalProperties": true
+    },
+    "seconds_per_image": { "type": "number", "minimum": 0 },
+    "chosen_by": {
+      "type": "string",
+      "enum": ["human", "agent"],
+      "description": "The machine narrows, the human casts (DECISIONS #15). An agent-chosen record is a draft, not a cast."
+    },
+    "notes": { "type": "string" },
+    "metadata": { "type": "object" }
+  },
+  "additionalProperties": false
+}
