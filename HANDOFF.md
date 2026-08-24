@@ -291,13 +291,10 @@ construct one. See DECISIONS.md #2.
    `VRGDG_Model_Defaults`, which is what the client reads. **All twelve model
    files are downloaded** — verified against the server's `Content-Length` on
    2026-08-24 — and ComfyUI already lists them in the loader dropdowns the LTX
-   templates use. The five the installer still calls `[part]` are missing only
-   their `.complete` markers; see the trap above. (The branch is pushed and in
-   sync with origin.)
-2. **Restore those five markers** by re-running `Install-VRGDGModels.ps1`, or by
-   creating them by hand. Cosmetic, but it stops the next session reading
-   "partial" as "not downloaded".
-3. **The live round trip** — the test that proves the whole thing, and nothing
+   templates use, and the five `.complete` markers were restored on 2026-08-24 so
+   the installer reports all twelve `[have]`. (The branch is pushed and in sync
+   with origin.)
+2. **The live round trip** — the test that proves the whole thing, and nothing
    blocks it as of 2026-08-24:
    plan a 2-scene film → `operation: "export"` → open in the Builder → render both
    scenes by hand → `operation: "import"` → confirm the manifest and cut come back

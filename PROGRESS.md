@@ -257,7 +257,9 @@ against the server's `Content-Length`, not by trusting the installer's report:
 | 4 LTX LoRAs | `loras\`, `loras\LTX\` | all **exact match** |
 
 **The five that read `[part]` were never partial.** Their `.complete` marker
-files had been deleted by hand. For a manifest entry with `size = 0` the
+files had been deleted by hand; they were restored on 2026-08-24 and the
+installer now reports all twelve `[have]` — "Everything in these groups is
+already present". For a manifest entry with `size = 0` the
 installer's only completeness test is that marker, so a finished file reports as
 partial — see the trap in `HANDOFF.md`. The earlier note here, that the Q6_K GGUF
 "may be truncated" at an unchanged size, was that trap being read as evidence.
@@ -302,22 +304,17 @@ trusted until reconciled.
 
 ## Next
 
-1. **Restore the five `.complete` markers** so the installer stops reporting
-   finished files as partial. Either create them by hand next to the model files,
-   or re-run `Install-VRGDGModels.ps1`, which rewrites them without
-   re-downloading. Cosmetic — nothing depends on the markers except the
-   installer's own report — but leaving it wrong is what produced the
-   "may be truncated" note above.
-2. **Open the VRGDG Builder once and select the LTX models** — they save to
+1. **Open the VRGDG Builder once and select the LTX models** — they save to
    `VRGDG_Model_Defaults`, which the client reads. The files are already visible
    in ComfyUI's loader dropdowns, so no restart is needed unless the Builder was
-   open before they appeared.
-3. **Live round trip** — plan a 2-scene film → `operation: "export"` → render both
+   open before they appeared. This is the only remaining prerequisite, and it
+   needs a human at the machine.
+2. **Live round trip** — plan a 2-scene film → `operation: "export"` → render both
    scenes in the Builder → `operation: "import"` → confirm the same scene ids
    come back. This is the test that proves the system, and nothing after it
    should start before it passes. It is the oldest unfinished item here, and as
    of today nothing blocks it.
-4. Then L3 (beat timing) or L4 (local post tier) — both self-contained, either
+3. Then L3 (beat timing) or L4 (local post tier) — both self-contained, either
    order.
 
 ### Open work on the casting layer, in priority order
