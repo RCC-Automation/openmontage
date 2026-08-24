@@ -851,6 +851,58 @@ session, never the prompt's request.
 
 ---
 
+## 35. Nine steps, standalone skills, and Backlot as the cockpit
+
+*accepted — 2026-08-24 · the plan itself lives in `PLAN.md`*
+
+**Context.** After the first end-to-end test Raul said the work so far was not
+enough: *"I need a real workflow where I can identify the steps that are
+executed with OpenMontage, and I can influence them, with reviews and the
+possibility for modifications"*, plus an interactive agent that tries models,
+seeds, prompts and LoRAs in conversation. He was right, and the diagnosis is
+uncomfortable: everything in that test ran **outside** OpenMontage's own
+production system — no pipeline, no checkpoints, no gates, no decision log, no
+board. Exactly what Rule Zero forbids. The machinery existed; nothing
+VRGDG-shaped ran inside it.
+
+**Decisions.**
+
+1. **Nine steps, three of them loops** — brief, casting, scene plan, scene
+   look, export, render, import, dailies, post. Scene look was the gap Raul
+   found on reading the draft: casting answers *who is she*, the scene plan
+   says *what happens*, and nothing answered *what does this scene look like*
+   before it was locked. It is a loop on the casting instrument, producing a
+   hero still per scene — which is exactly what export already pushes.
+2. **Standalone skills a pipeline strings together**, not pipeline-only
+   stages. A cast record outlives the film it was made for; "cast a character
+   for me" must work with no production in progress.
+3. **Backlot becomes the cockpit** — rejected: a ComfyUI node (it could not
+   show a screenplay, a contact sheet or an approval, and it lives inside a
+   canvas the workflow does not) and a new standalone app (Backlot is that
+   app, already serving state over SSE). A dashboard action cannot *run* a
+   step, because the agent orchestrates and Python may not: an action writes a
+   **request** the agent consumes. That keeps the constitution and works in
+   Claude Code today, with the Agent SDK as the headless path later.
+4. **The ComfyUI Lab is the screen test generalized** from *which model* to
+   *which graph* — sampler, scheduler, steps, CFG, LoRA stack, node
+   substitutions — funnelled, costed by the render clock, scored on the
+   calibrated axes, recorded as a recipe keyed by graph shape (#25). The
+   boundary from #15 holds: it proposes and measures; the human picks.
+5. **The reference modes are the payoff channel** (#33's sequel). VRGDG can
+   feed the video step five ways; everything to date used the weakest —
+   words plus a start frame. Flux/Nano references, Reference-to-Video,
+   Ingredients and ID-LoRA are how the cast references and hero stills reach
+   the render as *images*. WP2c, and it ends in a measurement rather than an
+   assumption: the reference-mode film must beat the text-mapped one.
+
+**Cost.** A manifest now exists whose stage skills do not
+(`vrgdg-character-film.yaml` says so in its own metadata). That is deliberate —
+Backlot draws the rail from the manifest, so the steps become visible before
+they are runnable — but a reader who trusts the file without reading its status
+line will be misled. `WORKFLOW.md`'s status table is the antidote.
+
+---
+
 ## Open questions
 
 - **Where should beat timing win?** L3 has VRGDG measure the music and snap scene

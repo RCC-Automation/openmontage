@@ -266,6 +266,38 @@ online, so their totals are not comparable), `casting/{kleinprobe,sdxlprobe,zpro
 
 ---
 
+## The production workflow ✅ WP1 shipped, the rest planned
+
+`PLAN.md` is the plan Raul asked for before any build: the workflow as **nine
+steps**, five work packages, order, GPU needs and how each is verified live.
+`WORKFLOW.md` is the manual — the overview he asked for, then a page per step
+(how to start it in plain words, what lands, how to review, how to change it,
+and the traps that bite at that step).
+
+```
+1 Brief ─► 2 Casting ─► 3 Scene plan ─► 4 Scene look ─► 5 Export ─► 6 Render ─► 7 Import ─► 8 Dailies ─► 9 Post
+  agree     LOOP          write          LOOP            hand over    YOU         collect     LOOP          finish
+```
+
+Three loops — casting, scene look, dailies. **Scene look was the gap Raul
+found**: casting says who she is, the scene plan says what happens, and nothing
+decided what each scene *looks like* before it was locked. It is now step 4, on
+the same instrument as casting, producing a hero still per scene.
+
+| Shipped | |
+|---|---|
+| `PLAN.md` | the plan: overview, per-step inventory, WP1–WP5, order, risks |
+| `WORKFLOW.md` | the manual, with the status table of what actually works |
+| `pipeline_defs/vrgdg-character-film.yaml` | nine stages, eight gated, validates and loads; **not yet runnable** — the stage skills are unwritten. Backlot draws the rail from it |
+
+Decided along the way: standalone skills a pipeline strings together (not
+pipeline-only stages); Backlot grown into the Wizard-style cockpit rather than
+a ComfyUI node or a new app, with a request queue the agent consumes so Python
+never orchestrates; the ComfyUI Lab as the screen test generalized from *which
+model* to *which graph*. DECISIONS #35.
+
+---
+
 ## Tests
 
 | Suite | |
@@ -294,7 +326,7 @@ without those installed.
 Required by VRGDG's LTX templates. Installer:
 `…\Comfy-Desktop\_vrgdg_setup\Install-VRGDGModels.ps1` (re-running is always safe).
 
-**All 12 are downloaded.** Verified 2026-08-24 by comparing each local file
+**All 14 are downloaded.** Verified 2026-08-24 by comparing each local file
 against the server's `Content-Length`, not by trusting the installer's report:
 
 | File | Destination | Bytes, local = remote |
@@ -307,6 +339,8 @@ against the server's `Content-Length`, not by trusting the installer's report:
 | `ltx-2.3-spatial-upscaler-x2-1.1.safetensors` | `latent_upscale_models\` | 995,743,560 ✅ |
 | `4x-UltraSharp.pth` | `upscale_models\` | 66,961,958 ✅ |
 | 4 LTX LoRAs | `loras\`, `loras\LTX\` | all **exact match** |
+| `LTX-2.3-Licon-MSR-V1.safetensors` | `loras\licon\` | 654,443,424 ✅ **fetched this session** |
+| `LTX-2.3-Licon-MSR-V2.safetensors` | `loras\licon\` | 654,443,392 ✅ **fetched this session** |
 
 **The five that read `[part]` were never partial.** Their `.complete` marker
 files had been deleted by hand; they were restored on 2026-08-24 and the
@@ -324,6 +358,14 @@ templates actually use: `UnetLoaderGGUF.unet_name` has the Q6_K GGUF,
 `DiffusionModelLoaderKJ.model_name` has the int8 convrot transformer,
 `DualCLIPLoaderGGUF.clip_name1` has gemma and the text projection, and both VAEs
 resolve.
+
+**The MSR LoRA was named but never shipped.** VRGDG's own settings default
+`msr_lora_name` to `licon\LTX-2.3-Licon-MSR-V1.safetensors`, and the pack
+carries no download for it — so LTX Reference-to-Video was dark and nothing
+said why. MSR is *Multiple Subject Reference*; the source is
+`LiconStudio/LTX-2.3-Multiple-Subject-Reference`. Both V1 (VRGDG's default)
+and V2 are now on disk, byte-verified, and **added to the installer manifest**
+so the gap cannot reappear. The installer now tracks 14 files, all `[have]`.
 
 Opt-in groups not fetched: `krea2`, `ernie`, `minimax` (~40 GB).
 
@@ -356,17 +398,18 @@ trusted until reconciled.
 
 ## Next
 
-1. **Open the VRGDG Builder once and select the LTX models** — they save to
-   `VRGDG_Model_Defaults`, which the client reads. The files are already visible
-   in ComfyUI's loader dropdowns, so no restart is needed unless the Builder was
-   open before they appeared. This is the only remaining prerequisite, and it
-   needs a human at the machine.
-2. **Live round trip** — the export half is done and cast-aware:
-   `VRGDG_Project_EndToEndTest` holds the 2-scene clockwork-heroine timeline
-   (sc2 is a 360° orbit) with darkBeast cast per scene at seed 7777 and a close
-   reference staged. What remains: render both scenes in the Builder (GPU-hours;
-   deliberately deferred) → `operation: "import"` → confirm the same scene ids
-   come back. Nothing blocks it but the render time.
+1. **Close the live round trip.** The render is **in progress as of clock-out**
+   — Raul started both scenes of `VRGDG_Project_EndToEndTest` in the Builder.
+   When it finishes: `vrgdg_project_sync` with `operation: "import"`,
+   `project_dir: projects/vrgdg-round-trip`, `project_folder:
+   …\output\VRGDG_Project_EndToEndTest`. Pass = the same two scene ids
+   (`sc1`, `sc2`) come back, the clips are copied into the project, and the cut
+   boundaries match the timeline. This is the oldest unfinished item and the
+   test that proves the system.
+2. **Then WP2, the interactive casting skill** (`PLAN.md`). The instrument is
+   built and calibrated; what is missing is the conversation — turning "more
+   like #3, warmer, keep the collar" into the next round. Needs the GPU, so it
+   follows the render.
 3. **Then `PLAN.md`**, in its order: ~~WP1 `WORKFLOW.md`~~ **done 2026-08-24**
    (plus `pipeline_defs/vrgdg-character-film.yaml`, nine stages, eight gated), WP2 the interactive casting skill, WP3 production skills and the
    `vrgdg-character-film` pipeline, WP4 Backlot as the cockpit, WP5 the ComfyUI

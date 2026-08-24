@@ -283,6 +283,15 @@ mounted, so `localhost:8188` is *its* localhost, not the Windows host's. Anythin
 needing a real render has to be run by the human in a host terminal. The same
 isolation blocks model downloads (no network egress).
 
+**VRGDG names models it does not ship.** The Builder's saved defaults set
+`msr_lora_name` to `licon\LTX-2.3-Licon-MSR-V1.safetensors`, but no VRGDG
+download provides it and the folder did not exist — so LTX Reference-to-Video
+was silently unavailable with nothing explaining why. MSR is *Multiple Subject
+Reference*: `LiconStudio/LTX-2.3-Multiple-Subject-Reference` on HuggingFace.
+V1 and V2 are now on disk and in `Install-VRGDGModels.ps1` (14 files). If
+another VRGDG mode refuses to run, check whether the model its settings name
+actually exists before debugging anything else.
+
 **Never make the approved slot a scene's only image source.** The Builder's
 render prep copies the scene's image *source* into the approved slot
 (`zimage_approved/image_NNNN.png`) on every render, reading
@@ -318,16 +327,23 @@ construct one. See DECISIONS.md #2.
 
 ---
 
+## 6b. The production workflow
+
+`PLAN.md` holds the plan (nine steps, five work packages), `WORKFLOW.md` the
+manual, `pipeline_defs/vrgdg-character-film.yaml` the manifest Backlot draws
+its rail from. The manifest **is not runnable yet** — its stage skills under
+`skills/production/` are unwritten; only export, render and import have
+machinery behind them. Read `PLAN.md` before building any skill or dashboard
+work, and `WORKFLOW.md`'s status table before promising a step works.
+
+---
+
 ## 7. Immediate next steps
 
-1. **Open the VRGDG Builder once and select the LTX models.** They save to
-   `VRGDG_Model_Defaults`, which is what the client reads. **All twelve model
-   files are downloaded** — verified against the server's `Content-Length` on
-   2026-08-24 — and ComfyUI already lists them in the loader dropdowns the LTX
-   templates use, and the five `.complete` markers were restored on 2026-08-24 so
-   the installer reports all twelve `[have]`. (The branch is pushed and in sync
-   with origin.)
-2. **The live round trip** — the test that proves the whole thing, and nothing
+1. **Close the live round trip** — the render was running at clock-out. All
+   fourteen model files are downloaded and verified, the LTX models are selected
+   in `VRGDG_Model_Defaults`, and the branch is pushed and in sync with origin.
+2. **The round trip itself** — the test that proves the whole thing, and nothing
    blocks it as of 2026-08-24:
    plan a 2-scene film → `operation: "export"` → open in the Builder → render both
    scenes by hand → `operation: "import"` → confirm the manifest and cut come back
