@@ -103,9 +103,12 @@ def _render_request(
                 payload[f"strength_{slot}"] = strength
                 payload[f"first_pass_strength_{slot}"] = strength
                 payload[f"second_pass_strength_{slot}"] = strength
+        build: dict[str, Any] = {"kind": driver["kind"], "payload": payload}
+        if recipe:
+            build["sampler_recipe"] = dict(recipe)
         return {
             "prompt": prompt,
-            "vrgdg_build": {"kind": driver["kind"], "payload": payload},
+            "vrgdg_build": build,
             "output_path": str(output_path),
         }
 
@@ -223,6 +226,20 @@ class ScreenTest(BaseTool):
                     "GPU-minutes this sweep may use. The plan is costed first and "
                     "refused if it does not fit; the run also stops when the budget "
                     "is spent."
+                ),
+            },
+            "use_embedded_recipe": {
+                "type": "string",
+                "enum": ["auto", "always", "never"],
+                "default": "auto",
+                "description": (
+                    "Whether to drive a checkpoint at the sampler settings in its "
+                    "own metadata. 'auto' does so only where the driver declares "
+                    "the graph is the shape those settings came from - the bundled "
+                    "SDXL workflow is, VRGDG's two-pass routes are not, and "
+                    "transplanting into them produces artefacts. 'always' forces "
+                    "it anyway for deliberate experiments; 'never' holds sampling "
+                    "identical across candidates, which mis-drives distilled models."
                 ),
             },
             "registry_path": {
@@ -442,6 +459,7 @@ class ScreenTest(BaseTool):
         # Which candidates were driven at their own settings rather than
         # ours. A comparison where the settings vary must say so.
         recipes_used: dict[str, dict[str, Any]] = {}
+        recipe_mode = str(inputs.get("use_embedded_recipe", "auto")).lower()
         starting_depth = image_client.queue_depth()
         if starting_depth:
             plan_summary.setdefault("estimate_warnings", []).append(
@@ -468,7 +486,18 @@ class ScreenTest(BaseTool):
                 continue
             route = _route_for(driver)
             driver = resolve_driver(driver, clips=clips, vaes=vaes)
-            recipe = registry.recipe_for(ledger_key) if ledger_key else {}
+            # "auto" trusts the driver: a recipe transplants only into a
+            # graph of the shape it came from. "always" overrides that for
+            # deliberate experiments, "never" holds sampling identical.
+            transplantable = (
+                recipe_mode == "always"
+                or (recipe_mode == "auto" and driver.get("accepts_recipe"))
+            )
+            recipe = (
+                registry.recipe_for(ledger_key)
+                if ledger_key and transplantable
+                else {}
+            )
             if recipe:
                 recipes_used[candidate.label] = dict(recipe)
             if driver["graph_source"] == "vrgdg_build" and not driver.get("vae_name"):
@@ -486,7 +515,11 @@ class ScreenTest(BaseTool):
                         stopped_early = True
                         break
 
-                    out_path = out_root / candidate.id / f"{condition_id(condition)}_s{seed}.png"
+                    # A recipe changes the render but not the candidate id,
+                    # so keep the two variants side by side instead of one
+                    # silently overwriting the other.
+                    folder = candidate.id + ("__recipe" if recipe else "")
+                    out_path = out_root / folder / f"{condition_id(condition)}_s{seed}.png"
                     request = _render_request(
                         driver,
                         candidate=candidate,

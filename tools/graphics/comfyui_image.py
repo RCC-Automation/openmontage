@@ -269,6 +269,7 @@ class ComfyUIImage(BaseTool):
         vrgdg_build = inputs.get("vrgdg_build") or None
         custom_workflow = bool(inputs.get("workflow_json") or inputs.get("workflow_path"))
         vrgdg_graph = None
+        applied_recipe: dict[str, Any] = {}
         vrgdg_pack_version = None
         if vrgdg_build is not None:
             if custom_workflow or inputs.get("workflow_profile_json") or inputs.get(
@@ -382,6 +383,13 @@ class ComfyUIImage(BaseTool):
                 payload.setdefault("prompt", inputs["prompt"])
                 payload.setdefault("seed", seed)
                 vrgdg_graph = vrgdg_client.build(str(vrgdg_build["kind"]), payload)
+                # The build routes patch model names but ignore sampler keys, so
+                # a checkpoint's own settings have to be edited into the graph
+                # they return. Matched on class_type, never node id.
+                recipe = vrgdg_build.get("sampler_recipe") or {}
+                applied_recipe = (
+                    vrgdg_graph.apply_sampler_recipe(recipe) if recipe else {}
+                )
                 vrgdg_pack_version = vrgdg_client.pack_version()
                 output_node = str(
                     inputs.get("output_node") or vrgdg_graph.output_node(prefer="image")
@@ -482,6 +490,10 @@ class ComfyUIImage(BaseTool):
                 provenance.update(
                     vrgdg_graph.provenance(pack_version=vrgdg_pack_version)
                 )
+                if applied_recipe:
+                    # The submitted graph no longer matches the template, so the
+                    # record has to say how it differs.
+                    provenance["sampler_recipe_applied"] = applied_recipe
             paths = self._client.generate(
                 workflow, output_node=output_node, dest=output_path, timeout=600,
             )

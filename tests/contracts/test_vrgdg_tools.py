@@ -459,3 +459,66 @@ def test_unreachable_probe_does_not_block_a_valid_graph():
     graph = {"1": {"class_type": "KSampler", "inputs": {}}}
     with patch("tools._comfyui.vrgdg.requests.get", side_effect=OSError("boom")):
         assert client.missing_node_types(graph) == {}
+
+
+class TestSamplerRecipeOnAGraph:
+    """The build routes ignore sampler keys, so the graph is edited after build.
+
+    Matched on class_type rather than node id: VRGDG renumbers its templates
+    between versions, and a node-id map is the burden DECISIONS #1 avoids.
+    """
+
+    def _graph(self):
+        from tools._comfyui.vrgdg import VRGDGGraph
+
+        return VRGDGGraph(kind="zimage", prompt={
+            "962": {"class_type": "KSamplerSelect",
+                    "inputs": {"sampler_name": "dpmpp_sde"}},
+            "964": {"class_type": "SamplerCustom", "inputs": {"cfg": 1}},
+            "968": {"class_type": "FlowMatchEulerDiscreteScheduler (Custom)",
+                    "inputs": {"steps": 10, "end_at_step": 10,
+                               "start_at_step": ["981", 0]}},
+            "969": {"class_type": "FlowMatchEulerDiscreteScheduler (Custom)",
+                    "inputs": {"steps": 10, "end_at_step": 10, "start_at_step": 5}},
+        })
+
+    def test_sampler_steps_and_cfg_are_applied(self):
+        graph = self._graph()
+        applied = graph.apply_sampler_recipe(
+            {"steps": 9, "guidance": 1.0, "sampler_name": "res_multistep"}
+        )
+        assert applied == {"sampler_name": "res_multistep", "guidance": 1.0, "steps": 9}
+        assert graph.prompt["962"]["inputs"]["sampler_name"] == "res_multistep"
+        assert graph.prompt["964"]["inputs"]["cfg"] == 1.0
+        assert graph.prompt["968"]["inputs"]["steps"] == 9
+
+    def test_end_at_step_follows_the_new_total(self):
+        graph = self._graph()
+        graph.apply_sampler_recipe({"steps": 9, "sampler_name": "euler"})
+        assert graph.prompt["968"]["inputs"]["end_at_step"] == 9
+
+    def test_a_second_pass_keeps_its_share_of_the_schedule(self):
+        """start_at_step is a fraction of the run, not an absolute index."""
+        graph = self._graph()
+        graph.apply_sampler_recipe({"steps": 9, "sampler_name": "euler"})
+        assert graph.prompt["969"]["inputs"]["start_at_step"] == 4      # 5/10 of 9
+
+    def test_a_linked_start_at_step_is_left_alone(self):
+        """A wired input is computed by another node; overwriting it breaks it."""
+        graph = self._graph()
+        graph.apply_sampler_recipe({"steps": 9, "sampler_name": "euler"})
+        assert graph.prompt["968"]["inputs"]["start_at_step"] == ["981", 0]
+
+    def test_a_field_with_nowhere_to_go_is_not_reported_as_applied(self):
+        """The flow-match node takes no named scheduler; say so by omission."""
+        graph = self._graph()
+        applied = graph.apply_sampler_recipe(
+            {"steps": 9, "sampler_name": "euler", "scheduler": "beta"}
+        )
+        assert "scheduler" not in applied
+
+    def test_an_empty_recipe_changes_nothing(self):
+        graph = self._graph()
+        before = json.dumps(graph.prompt, sort_keys=True)
+        assert graph.apply_sampler_recipe({}) == {}
+        assert json.dumps(graph.prompt, sort_keys=True) == before

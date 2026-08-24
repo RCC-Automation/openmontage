@@ -89,6 +89,14 @@ DRIVERS: dict[str, dict[str, Any]] = {
         # CheckpointLoaderSimple only lists models/checkpoints, so an SDXL file
         # parked in diffusion_models cannot be loaded however valid it is.
         "requires_folder": "checkpoints",
+        # A checkpoint's embedded recipe describes the graph it was merged in.
+        # This bundled graph is that same shape - CheckpointLoader into a single
+        # KSampler - so the settings transplant. VRGDG's routes are not: its
+        # zimage template is a two-pass flow-match schedule, and moving a
+        # foreign sampler into it produced speckled artefacts, scored *higher*
+        # by sharpness because the noise is high-frequency. Recipes therefore
+        # travel only into a graph of the shape they came from.
+        "accepts_recipe": True,
     },
 }
 

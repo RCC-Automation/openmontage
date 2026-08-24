@@ -357,6 +357,48 @@ class VRGDGGraph:
     def output_node(self, *, prefer: str | None = None) -> str:
         return resolve_output_node(self.prompt, prefer=prefer)
 
+    def apply_sampler_recipe(self, recipe: Mapping[str, Any]) -> dict[str, Any]:
+        """Override the template's sampling with a checkpoint's own settings.
+
+        The ``build_*_prompt`` routes patch model names from the payload but
+        ignore sampler keys entirely, so this edits the returned graph. Nodes
+        are matched by ``class_type``, never by id: VRGDG renumbers its
+        templates between versions, and a node-id map is the maintenance burden
+        DECISIONS.md #1 chose these routes to avoid.
+
+        Returns what it actually changed - a recipe field with nowhere to go is
+        reported rather than silently dropped.
+        """
+        applied: dict[str, Any] = {}
+        steps = recipe.get("steps")
+        for node in self.prompt.values():
+            if not isinstance(node, dict):
+                continue
+            class_type = str(node.get("class_type", ""))
+            inputs = node.get("inputs")
+            if not isinstance(inputs, dict):
+                continue
+
+            if class_type == "KSamplerSelect" and recipe.get("sampler_name"):
+                inputs["sampler_name"] = recipe["sampler_name"]
+                applied["sampler_name"] = recipe["sampler_name"]
+            elif class_type == "SamplerCustom" and recipe.get("guidance") is not None:
+                inputs["cfg"] = recipe["guidance"]
+                applied["guidance"] = recipe["guidance"]
+            elif "Scheduler" in class_type and isinstance(steps, int):
+                previous = inputs.get("steps")
+                inputs["steps"] = steps
+                applied["steps"] = steps
+                # end_at_step tracks the total; start_at_step marks where a
+                # second pass begins, so it keeps its share of the schedule
+                # rather than an absolute index into a schedule that shrank.
+                if inputs.get("end_at_step") == previous:
+                    inputs["end_at_step"] = steps
+                start = inputs.get("start_at_step")
+                if isinstance(start, int) and isinstance(previous, int) and previous:
+                    inputs["start_at_step"] = max(0, round(start * steps / previous))
+        return applied
+
     def prune(self, output_node: str) -> list[str]:
         """Drop dead branches in place. Returns the removed node ids."""
         self.prompt, removed = prune_to_output(self.prompt, output_node)

@@ -697,3 +697,20 @@ class TestDriverTable:
                 assert driver.get("vae_candidates"), family
                 assert driver.get("clip_type"), family
                 assert driver.get("kind"), family
+
+
+class TestRecipeTransplantability:
+    """A recipe describes the graph it came from, not sampling in the abstract.
+
+    Moving one into a differently-shaped graph is not neutral: transplanting a
+    checkpoint's res_multistep/9-step settings into VRGDG's two-pass flow-match
+    zimage template produced speckled artefacts - and scored *higher* on
+    sharpness, because the artefacts are high-frequency.
+    """
+
+    def test_the_bundled_sdxl_graph_accepts_recipes(self):
+        assert DRIVERS["sdxl"]["accepts_recipe"] is True
+
+    def test_vrgdg_routes_do_not(self):
+        for family in ("z-image", "flux2"):
+            assert not DRIVERS[family].get("accepts_recipe"), family
