@@ -501,9 +501,33 @@ change a line or the style, generate again — the same narrow-then-pick shape
 as casting and scene look, with your ear instead of your eye. It ends with a
 locked track, a `beat_map`, and a `song` artifact whose lines have times.
 
-The manifest stage is in place and gated. What is not written is the
-`production/score` skill behind it, the two artifact schemas, and the bridge
-work — the rest of this WP.
+The manifest stage is in place and gated.
+
+**Shipped 2026-08-24** — the whole score path, proven live end to end:
+
+| | |
+|---|---|
+| `schemas/artifacts/song.schema.json` | the words: sections, lines, a singer and a time per line |
+| `schemas/artifacts/beat_map.schema.json` | the measured grid, with `confidence` and requested-vs-delivered tempo both recorded |
+| `schemas/artifacts/cast_record.schema.json` | written while here — it had **no schema at all**, and an unregistered artifact is *silently skipped* by checkpoint validation |
+| `tools/analysis/audio_beatmap.py` | one analyzer, VRGDG's own, so our grid is the Builder's grid |
+| `tools/audio/lyric_align.py` | **forced alignment**, not transcription — stems out the vocal, then finds our own words in it |
+| `lib/vrgdg_bridge.py` | `session_to_beat_map`, `apply_song_to_session`, `session_to_song` — the grid comes home, lyrics cross both ways |
+
+**Proven on a real track.** A song was authored as words, generated locally
+(ACE-Step, 20 s, $0), measured, aligned, and round-tripped through the real
+86 KB session. Asked for 110 BPM, delivered **112.347** — the gap this WP
+exists to catch, caught. Lyrics went out with per-line singers and came back
+identical: 4 lines out, 4 back.
+
+The POC found two design bugs that tests over fixtures had not: a line
+spanning a cut is written to both shots (right) and came back as two lines
+(wrong); and a shot holding 4.16 s of chorus was labelled `verse` because a
+verse line touched it first. Both fixed, both now regression-tested.
+
+Still unwritten: the `production/score` skill — the conversation. Two open
+questions in `QUESTIONS.md`: how a score export gets a Builder session to
+write into (Q3), and whether a cue map needs `singer_id` (Q4).
 
 #### Lip sync — out of scope, decided 2026-08-24
 

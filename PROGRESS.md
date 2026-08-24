@@ -301,24 +301,59 @@ model* to *which graph*. DECISIONS #35.
 
 ---
 
+## WP6 — the score: foundations shipped, the loop unwritten
+
+`PLAN.md` WP6 holds the analysis. What landed 2026-08-24:
+
+| File | |
+|---|---|
+| `schemas/artifacts/song.schema.json` | lyrics as sections then lines; a singer and a time per line |
+| `schemas/artifacts/beat_map.schema.json` | measured grid; `confidence`; requested vs delivered tempo |
+| `schemas/artifacts/cast_record.schema.json` | it had **none** — and an artifact absent from `ARTIFACT_NAMES` is *silently skipped* by checkpoint validation, so it went through a whole production unchecked |
+| `tools/analysis/audio_beatmap.py` | one analyzer: VRGDG's own, so our grid is the Builder's grid |
+| `tools/audio/lyric_align.py` | forced alignment against our own lyrics, vocal stemmed out first |
+| `lib/vrgdg_bridge.py` | `session_to_beat_map`, `apply_song_to_session`, `session_to_song` |
+| `QUESTIONS.md` | new — blockers parked with the assumption made, not guessed at silently |
+
+**Proven live.** Song authored as words → generated locally (ACE-Step, 20 s,
+$0) → measured → aligned → round-tripped through the real session. Asked 110
+BPM, **delivered 112.347**; the tempo warning fired. Lyrics out and back
+identical, 4 lines each way, singers and times intact.
+
+`lyric_align` is the find of the session. VRGDG's `timestamped_transcribe`
+runs stem separation and then **forced alignment against lyrics we supply** —
+it is told the words rather than guessing them, so it cannot get them wrong,
+and it works over a full mix because the vocal is isolated first. That covers
+what `transcriber` cannot do here (`faster_whisper` absent).
+
+**The beat grid now comes home.** Export had been writing 19 markers into the
+session and import reading back one scalar, so the grid that timed the film
+existed nowhere in our record.
+
+Two design bugs the POC found that fixture tests had not: a line spanning a
+cut came back duplicated, and a shot holding 4.16 s of chorus was labelled
+`verse` because a verse line touched it first. Both fixed and regression-tested.
+
+---
+
 ## Tests
 
 | Suite | |
 |---|---|
 | `test_model_registry.py` | 75 passed |
 | `test_screen_test.py` | 73 passed |
-| `test_vrgdg_tools.py` + `test_vrgdg_bridge.py` | 130 passed (clock-in baseline) |
+| `test_vrgdg_tools.py` + `test_vrgdg_bridge.py` | 159 passed (clock-in baseline) |
 | `test_vrgdg_tools.py` | 45 passed |
-| `test_vrgdg_bridge.py` | 85 passed |
+| `test_vrgdg_bridge.py` | 114 passed |
 | `test_render_clock.py` + `test_screen_test.py` | 94 passed |
-| full `tests/contracts` | **1198 passed, 8 skipped** — no failures |
+| full `tests/contracts` | **1227 passed, 8 skipped** — no failures |
 
 Artifacts are validated against the real `schemas/artifacts/*.schema.json`, not
 spot-checked — a manifest that does not validate fails much later, at
 checkpoint-write time, with a far worse error.
 
-Full `tests/contracts` now runs clean on this machine — **1198 passed, 8 skipped
-in 48 s**, re-verified 2026-08-24. The ~13 `google.genai` / mermaid-CLI failures
+Full `tests/contracts` now runs clean on this machine — **1227 passed, 8 skipped
+in 59 s**, re-verified 2026-08-24 after the WP6 work. The ~13 `google.genai` / mermaid-CLI failures
 noted previously do not appear here; expect them again on a bare environment
 without those installed.
 
