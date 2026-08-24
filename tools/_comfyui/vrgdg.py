@@ -103,7 +103,13 @@ _ROUTES: tuple[BuildRoute, ...] = (
     BuildRoute(
         "flux_klein", "/vrgdg/workflow_runner/build_flux_klein_prompt", "image", False,
         ("prompt",), True,
-        "FLUX.2 Klein multi-image reference composition.",
+        "FLUX.2 Klein multi-image reference composition. Reference images go in "
+        "'images' (or 'image_ingredients') as a path, a newline-separated list, "
+        "or [{'path': ...}] - NOT 'image_paths', which is the node's own input "
+        "name and is silently ignored. Without the key the route deletes the "
+        "conditioning node, so a wrong name yields a plain text-to-image render "
+        "with no error. A reference is worth ~4x a description on a matched "
+        "shot but does not survive a change of shot size; see DECISIONS.md #26.",
     ),
     BuildRoute(
         "nb_image", "/vrgdg/workflow_runner/build_nb_image_prompt", "image", False,

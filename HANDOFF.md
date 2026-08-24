@@ -4,7 +4,7 @@ Everything a new session needs to continue the VRGDG integration without
 rediscovering it. Read this first, then `PROGRESS.md` for state and
 `DECISIONS.md` for why things are shaped the way they are.
 
-Last updated: 2026-08-23.
+Last updated: 2026-08-24.
 
 ---
 
@@ -117,6 +117,11 @@ read from its header, and which graph source can drive it. Persisted to
 `var/model_registry.json` (gitignored) and corrected by what happens when a model
 runs. This is what the screen test uses to pick candidates.
 
+**`lib/face_identity.py`** — ArcFace identity via InsightFace `buffalo_l`: detect,
+align to canonical landmarks, embed. Answers "is this the same person", which CLIP
+cannot. CPU through onnxruntime, ~0.3 s per image. Calibrated against measured
+populations, see DECISIONS.md #28.
+
 Verified live: a Z-Image render through `build_zimage_prompt` completed in 162 s
 with correct seed, output node and provenance. All three image graph paths have
 since rendered from `screen_test`: VRGDG `zimage` (41 s), the bundled SDXL
@@ -173,6 +178,61 @@ status code.
 folder*. In a Cowork session there is no slash command — say "clock out" and the
 agent follows `.agents/skills/clock-out/SKILL.md` directly.
 
+**A checkpoint that looks broken may just be mis-driven.** Distilled checkpoints
+(names carrying DMD, LCM, Turbo, Lightning) are trained for CFG ~1 and ~10 steps.
+Run one at CFG 4.5 for 35 steps and it returns saturated, posterised garbage that
+reads as a corrupt model. Two of the installed checkpoints were written off that
+way for a whole session. Many merges embed the graph they were made with in
+`__metadata__.prompt`; `lib/model_registry.infer_sampler_recipe` reads it. Six of
+the installed checkpoints carry one. See DECISIONS.md #24.
+
+**A recipe only transplants into a graph of the same shape.** The bundled SDXL
+workflow is CheckpointLoader into one KSampler, which is what those settings were
+authored in, so they apply. VRGDG's zimage route is a two-pass flow-match
+schedule and they do not — forcing `gonzalomoZpop_v40`'s own settings into it
+produced speckled artefacts. `DRIVERS[...]["accepts_recipe"]` gates this;
+`use_embedded_recipe` takes `auto` / `always` / `never`. DECISIONS.md #25.
+
+**`flux_klein` reference images go in `images`, not `image_paths`.** The key is
+`images` or `image_ingredients` — a path, a newline-separated list, or
+`[{"path": ...}]`. `image_paths` is the *node's* input name and is silently
+ignored. Worse, when the key is missing VRGDG deletes the conditioning node
+(`prompt.pop("1072")`) rather than erroring, so a wrong key yields a normal
+text-to-image render with no hint the reference was dropped. Symptom: the built
+graph has 14 nodes instead of 16.
+
+**Never store anything derived from code in the ledger.** The registry cached
+each family's driver alongside the model. After `DRIVERS` changed from fixed
+encoder names to resolved candidates, every scan reported the files unchanged and
+so never refreshed the snapshots — and a filename this machine has never had went
+to ComfyUI for three consecutive sweeps. Testing the resolver in isolation passed
+the whole time, because that reads from code. DECISIONS.md #22.
+
+**Timings are measured from submission, so a busy machine corrupts them.** Start
+a sweep while the Builder is rendering and the first image is recorded as taking
+as long as the video. `ComfyUIClient.queue_depth()` is checked before each render;
+a non-zero depth keeps the image and discards the timing. Unknown depth is
+treated as busy — losing a clean sample only slows learning, keeping a dirty one
+corrupts it silently.
+
+**`test_image_selector_no_provider` used to render for real.** It asserts the
+*no provider* path degrades gracefully, but with a provider configured it
+performed a real 26-second render, littered the repo root, and — because ComfyUI
+runs one job at a time — blocked the whole contract suite behind whatever else
+was queued. Now skipped when a provider is available. If another contract test
+starts hanging, suspect the same shape.
+
+**A guessed rescaling band has been wrong every time it was checked.** Three of
+them, all measured this session against real renders, all wrong — one by an order
+of magnitude. If you add a metric, calibrate it against output from this machine
+or mark it NOT CALIBRATED with the population it needs. DECISIONS.md #27.
+
+**A fixed seed is reproducibility, not character consistency.** Same model +
+prompt + seed reproduces byte-identically, which is why sweeps pin 7777. But hold
+the seed and change the prompt and the face drifts *more* (0.47) than holding the
+prompt and changing the seed (0.66). The description carries the identity, not the
+noise. DECISIONS.md #29.
+
 **Never trust a model's filename.** `moodyRealMix_ZIT_V7Global` and
 `darkBeast30BF16INT8_dbzit9DIMRclaw` are Z-Image UNets; `gonzalomoXLFluxPony_v30FluxDAIO`
 is a Flux.1 bundle; `ace_step_1.5_turbo_aio` is audio. Use `lib/model_registry.py`,
@@ -212,13 +272,14 @@ construct one. See DECISIONS.md #2.
 
 ## 7. Immediate next steps
 
-1. **Finish the models.** Re-run `Install-VRGDGModels.ps1`; four files are still
-   partial, including both 22B LTX weights. Every LTX route stays dark until they
-   complete.
+1. **Push** — 8 commits are unpushed. Then re-run `Install-VRGDGModels.ps1`;
+   **five** files are still partial, including both 22B LTX weights and the gemma
+   text encoder. Every LTX route stays dark until they complete.
 2. **Restart ComfyUI**, open the VRGDG Builder once and select the LTX models.
    They save to `VRGDG_Model_Defaults`, which is what the client reads.
-3. **Run the 13-model screen test** (`python scripts\quick_screen_test.py`),
-   ~8-10 min. Each render teaches the registry and the render clock.
+3. **Calibrate `look_consistency`** — the last uncalibrated band. The data is
+   already on disk: `projects/screen-tests/casting/identity/` (one character
+   across seeds) and `casting/negative/` (a different character).
 4. **The live round trip** — the test that proves the whole thing:
    plan a 2-scene film → `operation: "export"` → open in the Builder → render both
    scenes by hand → `operation: "import"` → confirm the manifest and cut come back

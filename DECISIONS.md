@@ -424,6 +424,244 @@ into a failed render for any large model.
 
 ---
 
+## 22. Cached derived state is a second source of truth, and it rots
+
+*accepted — 2026-08-24*
+
+**Context.** Three attempts at a 12-model sweep failed identically: every
+Z-Image model rejected with `clip_name: 'qwen_3_4b.safetensors' not in [...]`, a
+filename this machine has never had. The registry was caching a snapshot of each
+family's driver in its ledger. Those snapshots were written while `DRIVERS` still
+carried a hardcoded encoder name; after the switch to candidates resolved against
+the server, every scan reported the files unchanged and so never refreshed them.
+Testing the resolver in isolation passed, because that reads `DRIVERS` from code.
+
+**Decision.** Derive the driver from code at read time. Never store it.
+
+**Reasoning.** A persisted copy of something computed from code cannot signal
+that it is stale. This is the same mistake twice in one change — a run-outcome
+demotion also outlived the driver that produced it. The driver-signature
+mechanism added for that (#23) could not help here, because the cached driver
+*was* the stale thing. Not caching is the stronger fix and should have been the
+first reach.
+
+---
+
+## 23. A verdict earned under one driver expires when the driver changes
+
+*accepted — 2026-08-24*
+
+**Context.** A sweep that ran before encoder names were resolved failed every
+Z-Image model on validation and demoted all five permanently. Fixing the driver
+left the verdicts behind: the registry could not distinguish "this model is
+broken" from "we asked for it wrongly, once".
+
+**Decision.** A run-outcome demotion stamps a hash of the family's driver plus a
+resolver version. On scan, a demotion whose signature no longer matches is
+discarded and eligibility re-derived from the header. Human verdicts are exempt —
+they are about intent, not mechanism.
+
+**Also:** transient failures never demote at all. A read timeout while ComfyUI
+loads 4 GB of weights is a fact about the machine, and demoting on it would
+shrink the usable set every time the box was busy — shrinkage that would look
+like knowledge.
+
+---
+
+## 24. Drive each checkpoint at the settings it was built with
+
+*accepted — 2026-08-24*
+
+**Context.** Two checkpoints came out of the sweep as saturated, posterised
+garbage and read as broken models. They were not. Both are distilled, and both
+say so in their own metadata: `gonzalomoXLFluxPony_v60PhotoXLDMD` was merged at
+10 steps / CFG 1.0 / lcm / karras, `mopMixtureOfPerverts_v71` at 11 / 1.0 / lcm.
+The bundled workflow imposed 35 steps / CFG 4.5 / dpmpp_2m_sde on every SDXL
+checkpoint alike.
+
+**Decision.** Read the ComfyUI graph many merges embed in `__metadata__.prompt`,
+take the base pass, and use it. Six of the installed checkpoints carry one.
+
+**Result.** Sharpness 0.07 → 0.45 and 0.00 → 0.39, and 35 s → 10 s per render,
+since 10 steps is what they were built for. The two "broken" models are now the
+fastest good models on the machine.
+
+**Cost.** Honouring per-model settings breaks the sweep's premise that only the
+model varies, so the run reports `sampler_recipes_used` and the runner prints
+which candidates were driven at their own settings. Holding *wrong* settings
+constant only measures our ability to mis-drive a model.
+
+---
+
+## 25. A recipe describes the graph it came from
+
+*accepted — 2026-08-24*
+
+**Context.** Having made #24 work for the bundled SDXL path, the obvious next
+step was to apply recipes to the VRGDG routes too. `gonzalomoZpop_v40` states 9
+steps / res_multistep / beta. Driving VRGDG's zimage template that way produced
+speckled artefacts through the hair and blotchy skin — visibly worse than the
+template's own dpmpp_sde at 10 steps.
+
+**Decision.** Recipes travel only into a graph of the shape they came from. The
+bundled SDXL workflow is that shape — CheckpointLoader into one KSampler — so
+`DRIVERS["sdxl"]` carries `accepts_recipe`. VRGDG's zimage route is a two-pass
+flow-match schedule and does not. `use_embedded_recipe` takes `auto` (trust the
+driver), `always` (force it, for experiments) or `never`.
+
+**The second lesson, and the sharper one.** That artefacted render scored
+**0.428** against the same model's 0.066 when clean — its best score of the
+session — because speckle is high-frequency and the sharpness axis rewarded it.
+Which led directly to #26.
+
+---
+
+## 26. Detail is a gate on broken renders, not a measure of quality
+
+*accepted — 2026-08-24*
+
+**Context.** The sharpness score twice ranked exactly opposite to the person
+looking at the images. It placed the two renders the human chose 11th and 12th of
+twelve, because both have large deliberately out-of-focus backgrounds and the
+metric averaged the whole frame — so bokeh, a virtue in portraiture, read as
+blur. Then it gave an artefacted render the top score of the day.
+
+**Decision.** Two changes. Measure the sharpest tiles (8×8 grid, 90th percentile)
+rather than the whole frame, so the reading comes from whatever is in focus. Then
+stop ranking: anything inside the band real renders occupy scores 1.0, and the
+axis only speaks up for output that is blank, blurred or noise-blasted.
+
+**Calibrated, not guessed.** Eleven real renders from this machine: eight good
+ones, soft and crisp alike, fall between 0.0040 and 0.0137; two colour-blown and
+one artefacted sit between 0.0436 and 0.0612. An order of magnitude clear, no
+overlap. All eight good renders now score 1.00 and all three broken ones 0.00.
+
+**Reasoning.** A soft filmic portrait and a crisp editorial one are both correct,
+and which you want is a casting decision, not a measurement (#15). Scoring them
+against each other put a machine's opinion above the human's on precisely the
+question reserved for the human.
+
+---
+
+## 27. Guessed constants have been wrong every time they were checked
+
+*accepted — 2026-08-24*
+
+**Context.** Three rescaling bands in this codebase were written without data
+behind them. All three were checked this session against real renders. All three
+were wrong.
+
+| band | assumed | measured | effect |
+|---|---|---|---|
+| sharpness | 0.020–0.060 whole-frame | 0.0040–0.0137 on subject tiles | buried the chosen renders |
+| prompt adherence | 0.15–0.35 cosine | 0.293–0.388 | 13 of 15 saturated at 1.00 |
+| face identity | 0.20–0.65 (guessed) | 0.21–0.70 (measured) | nearly right, by luck |
+
+**Decision.** A band ships either calibrated against real output, or explicitly
+marked NOT CALIBRATED with the population it still needs. No silent constants.
+
+**Cost.** Calibration is cheap — a handful of renders and a percentile — and the
+alternative is a metric that looks like it works. The prompt-adherence band was
+so far off that it returned 1.00 for a colour-blown failure and for the best
+render alike, while appearing perfectly healthy.
+
+---
+
+## 28. Two identity measures, because they see different things
+
+*accepted — 2026-08-24*
+
+**Context.** The headline axis asked "does this stack hold one character" and
+answered with whole-image CLIP similarity, which cannot separate two different
+women in matching pink hair under matching light — exactly the population a
+casting sweep is full of.
+
+**Decision.** Add ArcFace (InsightFace `buffalo_l`) as `identity_stability`, and
+keep the CLIP measure under a name that says what it sees, `look_consistency`.
+The 0.45 the identity question was worth splits 0.30 face / 0.15 look.
+
+    ArcFace   the face.        Ignores hair colour, wardrobe, grade.
+    CLIP      everything else. Cannot tell two similar faces apart.
+
+A brief like "pink hair and a brass filigree collar" needs both: a render can
+keep the face and lose the character.
+
+**A render with no detectable face scores None, not zero.** A wide shot or a back
+view is missing data, not a drifting character, and zero would punish a stack for
+a framing the sweep itself asked for.
+
+**Calibration, and the mistake in it.** The first negative population was twelve
+models rendering the same brief. They looked like different people and appeared
+to overlap the positives — median 0.293, max 0.606. But twelve renderings of one
+description are not twelve different people; they are twelve attempts at the same
+one, and using them would have put the floor near 0.3 and scored a perfectly
+consistent model as drifting. A real negative needs a different character:
+rendering a lighthouse keeper gave 0.100–0.210, against 0.359–0.667 for one
+character across seeds. No overlap.
+
+---
+
+## 29. The seed is not the character; the description is
+
+*accepted — 2026-08-24*
+
+**Context.** A reasonable intuition, and worth recording because it is wrong:
+hold the seed fixed and vary the prompt to keep one character across shots.
+
+**Measured on darkBeast30, face cosine:**
+
+| held fixed | varied | result |
+|---|---|---|
+| prompt | seed (×3) | **0.66** — one person |
+| seed 7777 | prompt (close-up/medium/wide) | **0.47** — drifts |
+| — | — | 0.10–0.21 = different people |
+
+**Reasoning.** The seed is only the starting noise. Change the prompt and that
+noise is steered somewhere else entirely, so a fixed seed anchors nothing. What
+the model reads the face from is the description. A fixed seed does guarantee
+byte-identical reproduction for the same model+prompt, which is why sweeps pin
+7777 — that is reproducibility, not identity.
+
+**Consequence.** The number that matters for a film is the 0.47, not the 0.66:
+identity across *shots* is the real problem, and it is harder than across seeds.
+
+---
+
+## 30. A reference image is the strongest identity tool, until the framing changes
+
+*accepted — 2026-08-24*
+
+**Context.** Following #29 the obvious lever is a reference image, and the
+`flux_klein` route is exactly that — FLUX.2 Klein multi-image reference.
+
+**Measured, each shot against the reference face:**
+
+| shot | no reference | with reference |
+|---|---|---|
+| close-up | 0.213 | **0.932** |
+| medium, low-key, three-quarter | 0.133 | 0.301 |
+| wide | 0.097 | 0.493 |
+
+**Decision.** Use a reference per shot family — an approved close-up to condition
+close-ups, an approved medium for mediums — rather than one reference for a whole
+film. A character LoRA (L6) is the thing that holds identity independently of
+framing.
+
+**Reasoning.** On a matched shot the reference is worth roughly 4× a description,
+and 0.932 is not consistency but near-reproduction: far above the 0.667 ceiling
+that one character across seeds ever reached. It collapses when the framing
+changes because the conditioning is resized to about a megapixel, and a full
+figure in a wide shot has too few face pixels left to carry identity.
+
+**A trap in the measurement.** Averaging consistency *across* the three shots
+gives 0.371 with the reference against 0.481 without, which reads as "the
+reference made it worse". It did not — that average is dominated by how far a
+0.93 close-up sits from a 0.30 medium. When one output is nearly a copy of the
+target, similarity-among-outputs is the wrong question; each shot must be
+measured against the reference.
+
+---
+
 ## Open questions
 
 - **Where should beat timing win?** L3 has VRGDG measure the music and snap scene

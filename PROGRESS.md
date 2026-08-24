@@ -2,9 +2,9 @@
 
 State of the VRGDG integration. Update this when something lands.
 
-**Last updated:** 2026-08-23
+**Last updated:** 2026-08-24
 **Branch:** `integration/comfyui-local` (fork `RCC-Automation/openmontage`, upstream `calesthio/OpenMontage`)
-**HEAD:** `730facd` — in sync with origin
+**HEAD:** `fbef175` — **8 commits ahead of origin, not pushed**
 
 ---
 
@@ -119,61 +119,96 @@ of assuming them; `picks_a_winner` is `False` and stays that way.
 
 ---
 
-## Model registry + SDXL binding ✅ built + tested + verified live, ⬜ uncommitted
+## Casting layer: registry, recipes, metrics, identity ✅ committed
 
-The screen test picked candidates with a substring blacklist over filenames. It
-missed `ace_step_*` (the rule said `acestep`), so two audio models, a
-segmentation network and an SDXL refiner were queued as image candidates — and
-19 of the 20 would have failed anyway, because only the `zimage` route can be
-pointed at an arbitrary model.
+Nine commits, `5eb0a09`…`fbef175`. The screen test went from a tool that had
+never produced a trustworthy ranking to one whose every axis is calibrated
+against renders from this machine.
 
 | File | |
 |---|---|
-| `lib/model_registry.py` | header-based identification, driver mapping, name resolution, run-outcome learning |
-| `tests/contracts/test_model_registry.py` | 52 tests, fixtures built from real tensor signatures |
-| `tools/_comfyui/profiles/juggernaut-xl-ragnarok-txt2img.json` | + `checkpoint_name` binding |
-| `tools/graphics/comfyui_image.py` | `checkpoint_name` input, provenance retargeted to the checkpoint that ran |
-| `tools/graphics/screen_test.py` | per-candidate routing, per-family encoder/VAE, unmeasured renders declared |
-| `tools/_comfyui/client.py` | `_history_entry` timeout 10 s → 60 s |
-| `scripts/quick_screen_test.py` | registry-driven candidate list, no global encoder/VAE |
+| `lib/model_registry.py` | header identification, driver mapping, name resolution, sampler recipes, run-outcome learning |
+| `lib/face_identity.py` | ArcFace identity via InsightFace — detect, align, embed |
+| `lib/screen_test.py` | detail gate, `look_consistency`, calibrated adherence, five-axis weights |
+| `tools/_comfyui/vrgdg.py` | `VRGDGGraph.apply_sampler_recipe`, `flux_klein` reference-key docs |
+| `tools/_comfyui/client.py` | `queue_depth()`, history timeout 10 s → 60 s |
+| `tools/graphics/comfyui_image.py` | `checkpoint_name`, `sampler_name`, `scheduler`, provenance retarget |
+| `tools/graphics/screen_test.py` | per-candidate routing, recipe modes, contention guard, declared caps |
+| `scripts/quick_screen_test.py` | registry-driven pool, `--recipe`, honest reporting |
+| `requirements-clip.txt` | torch, transformers, insightface, onnxruntime — all CPU |
+| tests | +109 (registry 75, screen test 67 incl. new classes, vrgdg 45) |
 
-**What it does.** Reads each file's safetensors header (a few hundred KB, no GPU,
-works with ComfyUI down) and GGUF `general.architecture`. Records what the file
-is, the evidence, which graph source can drive it, and what happened when it ran.
-Persisted to `var/model_registry.json` (gitignored), keyed by a header
-fingerprint so a swapped file is re-judged. Failures demote a model with the
-error kept; successes confirm and time it.
+### What the model tree actually contains
 
-**The tree, as classified — 31 files, 13 eligible, 0 unknown, 18 excluded:**
+31 files, **13 eligible**, 0 unknown, 18 excluded each with a stated reason.
+Identity comes from the safetensors header, never the filename — two of the five
+Z-Image models (`moodyRealMix_ZIT_V7Global`, `darkBeast30BF16INT8_dbzit9DIMRclaw`)
+carry nothing in their names that would identify them.
 
 | family | n | driver |
 |---|---|---|
 | Z-Image | 5 | VRGDG `zimage` |
-| SDXL | 7 | bundled `juggernaut-xl-ragnarok-txt2img` |
+| SDXL | 7 (6 usable) | bundled `juggernaut-xl-ragnarok-txt2img` |
 | FLUX.2 Klein | 1 | VRGDG `flux_klein` |
-| Wan / ACE-Step / LTX / SAM / refiner | 14 | excluded, each with a stated reason |
-| Flux.1 + Chroma | 3 | excluded — need a dual-CLIP graph no template has |
-| GGUF (Z-Image, LTX) | 3 | excluded — need `*LoaderGGUF`, templates use `UNETLoader` |
-| `minimax_h3_…` | 1 | excluded — **127 KB, a failed download** |
+| Wan / ACE-Step / LTX / SAM / refiner / Flux.1 / Chroma / GGUF | 18 | excluded, reasons recorded |
 
-Two of the five Z-Image models (`moodyRealMix_ZIT_V7Global`,
-`darkBeast30BF16INT8_dbzit9DIMRclaw`) carry nothing in their names that would
-identify them. No name-based rule finds those.
+`gonzalomoXLFluxPony_v70PhotoXLDMD` is a valid SDXL checkpoint sitting in
+`diffusion_models/`; `CheckpointLoaderSimple` only lists `models/checkpoints/`,
+so it is refused up front. Move it and the next scan picks it up as a 13th
+candidate. `minimax_h3_…` is 127 KB — a failed download.
 
-**All three image paths verified live**, same brief:
+### The five axes, all calibrated against this machine
 
-| path | model | |
+| axis | weight | state |
 |---|---|---|
-| VRGDG `zimage` | zImageTurbo_turbo | 41 s |
-| bundled workflow | juggernautXL_ragnarok | 35 s |
-| VRGDG `flux_klein` | flux-2-klein-4b-fp8 | 5 s |
+| `identity_stability` (ArcFace) | 0.30 | calibrated 0.21 → 0.70 |
+| `look_consistency` (CLIP) | 0.15 | inherits the old band; **not recalibrated** |
+| `prompt_adherence` (CLIP) | 0.25 | recalibrated 0.29 → 0.39 |
+| `technical` | 0.20 | a gate: 1.0 usable, 0.0 broken |
+| `speed` | 0.10 | relative to slowest |
 
-**Bugs the live runs surfaced**, all fixed: ACE-Step read as video (bundle
-unwrapping discarded the vocoder); unmeasured routes costed at zero without
-saying so; a 10 s `/history` timeout killing any slow first load; transient
-failures permanently demoting models; one global VAE forced on every family
-(16-channel decoder, 128-channel latent, dying inside `VAEDecode`); template
-filenames not matching installed ones. See DECISIONS.md #18-21.
+### Measured findings
+
+**Distilled checkpoints were being mis-driven.** Two models read as broken; both
+state their own settings in metadata (10–11 steps, CFG 1.0, `lcm`). Driven
+correctly they became the fastest good models on the machine — 35 s → 10 s, and
+sharpness 0.07 → 0.45 / 0.00 → 0.39.
+
+**Identity across seeds** (`shortlist`, 3 seeds):
+
+| model | face | verdict |
+|---|---|---|
+| darkBeast30 | **0.92** | the same woman three times |
+| flux-2-klein | 0.71 | |
+| gonzalomoZpop_v40 | **0.42** | three different women |
+
+The human picked darkBeast and Zpop as favourites from single frames. They sit at
+opposite ends — which is the case for the axis existing.
+
+**Seed does not hold a character** (DECISIONS #29): same prompt / different seeds
+= 0.66; same seed / different prompts = **0.47**. Different people = 0.10–0.21.
+
+**A reference image is ~4× a description on a matched shot** (DECISIONS #30):
+close-up 0.213 → **0.932** with a reference, but the medium falls to 0.301 and
+the wide to 0.493. Use one reference per shot family.
+
+### Results on disk
+
+All under `projects/screen-tests/` (gitignored):
+
+| path | what |
+|---|---|
+| `casting/clean-{never,auto,always}/model_comparison.png` | 12 models, three recipe modes, comparable |
+| `casting/identity/drift_strip.png` | darkBeast vs Zpop across three seeds |
+| `seed_vs_prompt/seed_vs_prompt.png` | seed-fixed vs prompt-fixed |
+| `klein_reference/reference_test.png` | reference vs no reference across three shots |
+| `casting/*/casting_report.json` | every axis, every candidate, every shot path |
+| `var/model_registry.json` | the ledger (repo root, gitignored) |
+
+Superseded and safe to delete: `casting/mode-*` (ran while CLIP was coming
+online, so their totals are not comparable), `casting/{kleinprobe,sdxlprobe,zprobe,zpoprecipe,recipetest}`,
+`cfg_probe/`.
+
 
 ---
 
@@ -181,11 +216,13 @@ filenames not matching installed ones. See DECISIONS.md #18-21.
 
 | Suite | |
 |---|---|
-| `test_model_registry.py` | 52 passed |
+| `test_model_registry.py` | 75 passed |
+| `test_screen_test.py` | 67 passed |
+| `test_vrgdg_tools.py` + `test_vrgdg_bridge.py` | 111 passed (clock-in baseline) |
 | `test_vrgdg_tools.py` | 39 passed |
 | `test_vrgdg_bridge.py` | 66 passed |
 | `test_render_clock.py` + `test_screen_test.py` | 65 passed |
-| full `tests/contracts` | **1118 passed, 7 skipped** — no failures |
+| full `tests/contracts` | **1173 passed, 8 skipped** — no failures |
 
 Artifacts are validated against the real `schemas/artifacts/*.schema.json`, not
 spot-checked — a manifest that does not validate fails much later, at
@@ -204,8 +241,8 @@ Required by VRGDG's LTX templates. Installer:
 
 | File | Destination | Status |
 |---|---|---|
-| `LTX-2.3-22B-distilled-1.1-Q6_K.gguf` | `diffusion_models\` | 19.56 GB — **complete** |
-| `ltx-2.3-22b-dev_transformer_only_int8_convrot.safetensors` | `diffusion_models\LTX_8bit\` | 19.5 GB so far — **partial, resumes** |
+| `LTX-2.3-22B-distilled-1.1-Q6_K.gguf` | `diffusion_models\` | 19.56 GB — **regressed to partial**, may be truncated |
+| `ltx-2.3-22b-dev_transformer_only_int8_convrot.safetensors` | `diffusion_models\LTX_8bit\` | 20.03 GB so far — **partial, resumes** |
 | `gemma-3-12b-it-abliterated…safetensors` | `text_encoders\` | 13.15 GB — **partial, resumes** |
 | `ltx-2.3_text_projection_bf16.safetensors` | `text_encoders\` | 2.15 GB — **exact match, complete** |
 | `LTX23_video_vae_bf16` / `LTX23_audio_vae_bf16` | `vae\` | 1.35 / 0.33 GB — **exact match, complete** |
@@ -213,11 +250,13 @@ Required by VRGDG's LTX templates. Installer:
 | `4x-UltraSharp.pth` | `upscale_models\` | 0.06 GB — **partial, resumes** |
 | 4 LTX LoRAs | `loras\`, `loras\LTX\` | all **exact match, complete** |
 
-Verified by `Install-VRGDGModels.ps1 -Preview` on 2026-08-23: 8 of 12 complete,
-**4 still partial** (both 22B LTX weights, the spatial upscaler, 4x-UltraSharp).
-The int8 transformer grew 15.53 → 19.5 GB since the previous session, so a
-download did run after that clock-out. Re-run the installer to resume; 911 GB
-free, so space is not the constraint.
+Verified by `Install-VRGDGModels.ps1 -Preview` on 2026-08-24: 7 of 12 complete,
+**5 still partial** (both 22B LTX weights, the gemma text encoder, the spatial
+upscaler, 4x-UltraSharp).
+The int8 transformer grew again (19.5 → 20.03 GB) and the Q6_K GGUF moved from
+`[have]` back to `[part]` at an unchanged 19.56 GB — so it lost its completeness
+marker or is genuinely truncated. The installer re-asks the server on resume; 911 GB free, so space is not the
+constraint.
 
 Opt-in groups not fetched: `krea2`, `ernie`, `minimax` (~40 GB).
 
@@ -248,32 +287,43 @@ trusted until reconciled.
 
 ## Next
 
-1. **Run the 13-model `quick` screen test** (~8-10 min). Every render teaches
-   both the registry and the render clock, and this is the first sweep that can
-   actually compare across families.
-2. Re-run `Install-VRGDGModels.ps1` to finish the four partial files. Until the
-   two 22B weights land, every LTX route stays dark.
-3. Restart ComfyUI; select the LTX models in the Builder once (they save to
-   `VRGDG_Model_Defaults`, which the client reads).
-4. **Live round trip** — plan a 2-scene film → export → render in the Builder →
-   import → confirm the same scene ids come back. This is the test that proves
-   the system, and nothing after it should start before it passes.
-5. Then L3 (beat timing) or L4 (local post tier) — both are self-contained and can
-   land in either order.
+1. **Push.** 8 commits sit unpushed on `integration/comfyui-local`
+   (`5eb0a09`…`fbef175`). Nothing else should start on top of an unpushed branch.
+2. **Re-run `Install-VRGDGModels.ps1`.** Five files are partial — both 22B LTX
+   weights, the gemma text encoder, the spatial upscaler, 4x-UltraSharp. Every
+   LTX route stays dark until they land, which blocks all video work including
+   the round trip's render step. The Q6_K GGUF regressed from `[have]` to
+   `[part]` at the same 19.56 GB, so it may be truncated rather than merely
+   unmarked; the installer re-verifies on resume.
+3. **Restart ComfyUI**, open the VRGDG Builder once and select the LTX models —
+   they save to `VRGDG_Model_Defaults`, which the client reads.
+4. **Live round trip** — plan a 2-scene film → `operation: "export"` → render both
+   scenes in the Builder → `operation: "import"` → confirm the same scene ids
+   come back. This is the test that proves the system, and nothing after it
+   should start before it passes. It is the oldest unfinished item here.
+5. Then L3 (beat timing) or L4 (local post tier) — both self-contained, either
+   order.
 
-### Known gaps in the screen test
+### Open work on the casting layer, in priority order
 
-Two axes of the ranking cannot be computed on this machine: `identity_stability`
-(weight 0.45) and `prompt_adherence` (0.25) both need CLIP, and `torch` /
-`transformers` are absent from the repo's Python (ComfyUI's ROCm torch lives in
-its own embedded interpreter). The ranking correctly reweights around them, but
-`shortlist` and `full` exist *for* identity stability — until CLIP is installed
-they measure only sharpness and speed.
+- **`look_consistency` is the one uncalibrated axis left.** It inherits the band
+  written for the old whole-image `identity_stability` (0.6 → 1.0). The other
+  three bands were all checked this session and all three were wrong
+  (DECISIONS #27), so this one should be assumed wrong until measured. The
+  population it needs already exists on disk: `casting/identity/` for
+  same-character-across-seeds and `casting/negative/` for a different character.
+- **A reference per shot family.** DECISIONS #30 shows a reference is worth ~4×
+  a description on a matched shot but collapses when the framing changes. The
+  screen test has no concept of an approved reference yet; adding one would let
+  `full` measure identity across shot sizes, which is the real production
+  question (DECISIONS #29).
+- **ArcFace measures faces, nothing else.** A render can hold the face and lose
+  the pink hair and brass collar. `look_consistency` is the guard for that, which
+  is another reason to calibrate it rather than leave it inherited.
+- **The screen test cannot use a LoRA-trained character yet.** L6 remains the
+  only mechanism that holds identity independently of framing.
 
-The `technical` axis is also mis-calibrated: its band assumes a Laplacian
-variance of 0.020-0.060 and a real render measures **0.0029**, so every genuine
-image scores in the bottom few percent and the axis cannot discriminate. Worth
-recalibrating against the renders now on disk.
+---
 
 ## Known gaps unrelated to the bridge
 
