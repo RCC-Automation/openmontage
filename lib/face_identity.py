@@ -146,15 +146,22 @@ def face_identity_stability(paths: Sequence[Path]) -> float | None:
     return _rescale(mean)
 
 
-# ArcFace cosine has a well-known working range - the same person typically
-# lands far above different people - but the exact split depends on the
-# detector, the pack and, here, on faces that were generated rather than
-# photographed. NOT YET CALIBRATED against this machine's renders: measure a
-# multi-seed run of one model for the "same person" population and a
-# single-seed run across models for "different people", then set these from
-# data. Two bands in this codebase were guessed rather than measured and both
-# were wrong, one by an order of magnitude.
-_DIFFERENT, _SAME = 0.20, 0.65
+# Calibrated on this machine, 2026-08-24, against three measured populations:
+#
+#   genuinely different people   0.100-0.210   (one model, two unrelated briefs:
+#                                               a young heroine and an old
+#                                               lighthouse keeper)
+#   one character across seeds   0.359-0.667   (three models x three seeds)
+#     - the model that drifted      0.359-0.446
+#     - the model that held         0.657-0.667
+#
+# The two populations do not overlap, so the floor sits just above the highest
+# true negative and the ceiling just above the best observed hold. A first
+# attempt across *models on the same brief* looked like an overlap (median
+# 0.293, max 0.606) - but twelve models rendering one description are not
+# twelve different people, and using them as a negative would have set the
+# floor far too high. The negative has to be a different character.
+_DIFFERENT, _SAME = 0.21, 0.70
 
 
 def _rescale(mean: float) -> float:

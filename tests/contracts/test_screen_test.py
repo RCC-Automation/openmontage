@@ -767,3 +767,46 @@ class TestTheTwoIdentityAxes:
         ranked = score_candidates([result], prompt="x", skip=["identity_stability"])
         assert ranked[0].scores["identity_stability"] is None
         assert ranked[0].scores["look_consistency"] is None
+
+
+class TestFaceIdentityCalibration:
+    """The band is set from three measured populations, not from a published figure.
+
+    Genuinely different people (one model, two unrelated briefs) topped out at
+    0.210; one character across seeds ran 0.359-0.667. They do not overlap, so
+    the floor sits just above the highest true negative.
+
+    A first attempt used twelve models rendering the *same* brief as the
+    negative and appeared to overlap - but twelve renderings of one description
+    are not twelve different people, and it would have set the floor far too
+    high. The negative has to be a different character.
+    """
+
+    def test_different_people_score_zero(self):
+        from lib.face_identity import _rescale
+
+        assert _rescale(0.210) == 0.0
+        assert _rescale(0.155) == 0.0
+
+    def test_a_model_that_holds_a_character_scores_high(self):
+        from lib.face_identity import _rescale
+
+        assert _rescale(0.662) > 0.85
+
+    def test_a_model_that_drifts_scores_low_but_not_zero(self):
+        """Drifting is not the same as rendering a stranger; the scale must say so."""
+        from lib.face_identity import _rescale
+
+        drifting = _rescale(0.414)
+        assert 0.2 < drifting < 0.6
+
+    def test_the_scale_separates_holding_from_drifting(self):
+        from lib.face_identity import _rescale
+
+        assert _rescale(0.662) - _rescale(0.414) > 0.4
+
+    def test_the_ceiling_is_not_saturated_by_the_best_observed(self):
+        """Room above the best real result, so better stacks remain rankable."""
+        from lib.face_identity import _rescale
+
+        assert _rescale(0.667) < 1.0
