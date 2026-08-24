@@ -143,6 +143,53 @@ def build_shot_prompt(
     return ". ".join(filter(None, layers))
 
 
+def build_motion_prompt(
+    scene: dict[str, Any],
+    style_context: dict[str, Any] | None = None,
+) -> str:
+    """The video-generation prompt for a shot: what moves, and how.
+
+    An i2v model starts from the approved still, so composition, wardrobe and
+    palette are already decided - what this prompt must carry is the camera
+    path and how the scene behaves over time. The scene's authored ``movement``
+    text wins over the ``camera_movement`` enum phrase: when a plan says "the
+    camera orbits a full 360 degrees ... she does not turn", that sentence IS
+    the shot, and a generic "orbital camera circling subject" would only dilute
+    it. Editorial fields (transitions) stay out - they belong to the cut, not
+    to the clip.
+    """
+    sl = scene.get("shot_language", {})
+    parts: list[str] = []
+
+    description = str(scene.get("description") or "").strip()
+    if description:
+        parts.append(description)
+
+    movement = str(scene.get("movement") or "").strip()
+    camera = sl.get("camera_movement")
+    if movement:
+        parts.append(movement)
+    elif camera and camera != "static":
+        parts.append(_MOVEMENT_PHRASES.get(camera, camera))
+    else:
+        parts.append(
+            "locked-off static camera, only subtle natural motion in the scene"
+        )
+
+    lighting = sl.get("lighting_key")
+    if lighting:
+        phrase = _LIGHTING_PHRASES.get(lighting, lighting)
+        parts.append(f"the {phrase} holds throughout")
+
+    if style_context:
+        visual_lang = style_context.get("visual_language", {})
+        style_hint = visual_lang.get("aesthetic", "") or style_context.get("mood", "")
+        if style_hint:
+            parts.append(f"Style: {style_hint}")
+
+    return ". ".join(filter(None, parts))
+
+
 def build_batch_prompts(
     scenes: list[dict[str, Any]],
     style_context: dict[str, Any] | None = None,

@@ -529,15 +529,45 @@ def test_export_maps_the_fields_we_do_model():
     assert first["track"] == "base"
 
 
-def test_motion_intent_goes_to_notes_not_to_the_video_prompt():
-    # i2v_prompt is left for the Builder's own prompt step; this bridge does not
-    # guess at video-model phrasing.
+def test_export_authors_the_video_prompt_and_keeps_the_notes():
+    # DECISIONS #33 (revising #9): OpenMontage writes the video prompt, so
+    # Video Prep opens filled in. The notes remain the brief it was written
+    # from, and still carry the editorial intent (transitions) the prompt
+    # deliberately leaves out.
     segments, _ = scene_plan_to_segments(
         _scene_plan(), _scaffold_session()["segments"][0], scene_map=SceneMap()
     )
-    assert segments[0]["i2v_prompt"] == ""
+    assert "slow push in" in segments[0]["i2v_prompt"]
+    assert segments[0]["i2v_prompt_origin"] == "manual"
     assert "push in" in segments[0]["i2v_notes"]
     assert "cross dissolve" in segments[1]["i2v_notes"]
+    assert "cross dissolve" not in segments[1]["i2v_prompt"]
+
+
+def test_the_authored_movement_text_wins_over_the_enum_phrase():
+    # "the camera orbits a full 360 degrees... she does not turn" IS the shot;
+    # a generic "orbital camera circling subject" would only dilute it.
+    from lib.shot_prompt_builder import build_motion_prompt
+
+    scene = {
+        "description": "she stands in the workshop",
+        "movement": "the camera orbits a full 360 degrees around her",
+        "shot_language": {"camera_movement": "orbital", "lighting_key": "rim_lit"},
+    }
+    prompt = build_motion_prompt(scene)
+    assert "orbits a full 360 degrees" in prompt
+    assert "circling subject" not in prompt
+    assert "rim lighting" in prompt
+
+
+def test_a_static_shot_still_gets_a_motion_prompt():
+    from lib.shot_prompt_builder import build_motion_prompt
+
+    prompt = build_motion_prompt(
+        {"description": "a clock on the wall", "shot_language": {"camera_movement": "static"}}
+    )
+    assert "static camera" in prompt
+    assert "subtle natural motion" in prompt
 
 
 def test_export_binds_the_scene_map():
@@ -1055,6 +1085,47 @@ def test_references_are_staged_into_the_builder_project(tmp_path):
     assert staged.is_file() and staged.parent == project / "references"
     assert "wide" not in casting["references"]
     assert any("does not exist" in w for w in warnings)
+
+
+def test_a_pushed_still_is_recorded_in_the_session(project_dir, tmp_path):
+    # save_scene_image only copies the file; recording where it landed is the
+    # caller's job - the Builder UI sets approved_image_path after every call,
+    # and so must the export, or the timeline shows no image.
+    import json as _json
+
+    (project_dir / "artifacts" / "scene_plan.json").write_text(
+        _json.dumps(_cast_plan()), encoding="utf-8"
+    )
+    still = project_dir / "assets" / "images" / "sc1.png"
+    still.write_bytes(b"PNG fake")
+    (project_dir / "artifacts" / "asset_manifest.json").write_text(
+        _json.dumps({
+            "version": "1.0",
+            "assets": [{
+                "id": "img_sc1", "type": "image", "path": "assets/images/sc1.png",
+                "source_tool": "comfyui_image", "scene_id": "sc1",
+            }],
+        }),
+        encoding="utf-8",
+    )
+    vrgdg_folder = tmp_path / "vrgdg_target"
+    vrgdg_folder.mkdir()
+    tool = _export_tool(_cast_session())
+    result = tool.execute({
+        "operation": "export",
+        "project_dir": str(project_dir),
+        "project_folder": str(vrgdg_folder),
+    })
+    assert result.success, result.error
+    assert result.data["stills_pushed"] == ["sc1"]
+    saved = tool._client.saved
+    from lib.vrgdg_bridge import stable_segment_id
+
+    seg = next(s for s in saved["segments"] if s["id"] == stable_segment_id("sc1"))
+    assert seg["image"].endswith("image_0001.png")
+    assert seg["approved_image_path"] == seg["image"]
+    other = next(s for s in saved["segments"] if s["id"] == stable_segment_id("sc2"))
+    assert not other.get("image")
 
 
 def test_export_applies_and_reports_the_cast(project_dir, tmp_path):

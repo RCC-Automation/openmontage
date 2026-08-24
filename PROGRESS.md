@@ -98,6 +98,21 @@ and takes the approved-stills lane (`push_approved_stills`). What stays manual:
 creating the project (the `new_project` route writes no session — see the
 HANDOFF trap and #32); the standing goal is closing that too.
 
+**And the export now fills the whole timeline (DECISIONS #33, revising #9):**
+`i2v_prompt` is authored by `build_motion_prompt` (Video Prep opens filled in;
+the scene's authored movement text beats the enum phrase), stills are rendered
+on the OpenMontage side through `comfyui_image` + the cast, and the push
+records each landed path in the session (`image` + `approved_image_path`) the
+way the Builder UI does. Verified live: both scenes in
+`VRGDG_Project_EndToEndTest` carry image, prompts, cast and reference.
+
+**The first automated run caught real drift.** sc2's description said "The
+same clockwork heroine" — no image model can resolve that — and rendered a
+different woman. Our calibrated axes measured it (face 0.34 / look 0.33),
+restating the character in the description fixed it (0.55 / 0.68). #29 in
+production: every scene's description must restate the character; the systemic
+fix is a per-scene character block (L6 direction).
+
 ---
 
 ## Render clock + screen test ✅ committed `730facd`, ✅ **verified live**
@@ -246,18 +261,18 @@ online, so their totals are not comparable), `casting/{kleinprobe,sdxlprobe,zpro
 |---|---|
 | `test_model_registry.py` | 75 passed |
 | `test_screen_test.py` | 73 passed |
-| `test_vrgdg_tools.py` + `test_vrgdg_bridge.py` | 125 passed (clock-in baseline) |
+| `test_vrgdg_tools.py` + `test_vrgdg_bridge.py` | 128 passed (clock-in baseline) |
 | `test_vrgdg_tools.py` | 45 passed |
-| `test_vrgdg_bridge.py` | 80 passed |
+| `test_vrgdg_bridge.py` | 83 passed |
 | `test_render_clock.py` + `test_screen_test.py` | 94 passed |
-| full `tests/contracts` | **1193 passed, 8 skipped** — no failures |
+| full `tests/contracts` | **1196 passed, 8 skipped** — no failures |
 
 Artifacts are validated against the real `schemas/artifacts/*.schema.json`, not
 spot-checked — a manifest that does not validate fails much later, at
 checkpoint-write time, with a far worse error.
 
-Full `tests/contracts` now runs clean on this machine — **1193 passed, 8 skipped
-in 42 s**, re-verified 2026-08-24. The ~13 `google.genai` / mermaid-CLI failures
+Full `tests/contracts` now runs clean on this machine — **1196 passed, 8 skipped
+in 45 s**, re-verified 2026-08-24. The ~13 `google.genai` / mermaid-CLI failures
 noted previously do not appear here; expect them again on a bare environment
 without those installed.
 

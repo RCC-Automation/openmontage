@@ -413,7 +413,7 @@ def scene_plan_to_segments(
     defaults that release expects - inventing a segment would silently drop
     whatever the current version added.
     """
-    from lib.shot_prompt_builder import build_shot_prompt
+    from lib.shot_prompt_builder import build_motion_prompt, build_shot_prompt
 
     scenes = scene_plan.get("scenes")
     if not isinstance(scenes, list) or not scenes:
@@ -467,11 +467,15 @@ def scene_plan_to_segments(
                 "timeline_note": str(scene.get("overlay_notes") or ""),
                 "story_beat": str(scene.get("narrative_role") or ""),
                 "t2i_prompt": build_shot_prompt(dict(scene), dict(style_context or {}) or None),
-                # i2v_notes is the motion brief; i2v_prompt is left empty so the
-                # Builder's own prompt step (or a later OpenMontage pass) fills it
-                # rather than this bridge guessing at video-model phrasing.
+                # Both prompts are authored here (DECISIONS #33, revising #9):
+                # OpenMontage is the prompt writer, so Video Prep opens filled
+                # in rather than waiting on the Builder's Gemma step. The notes
+                # stay - they are the brief the prompt was written from, and
+                # the Builder can still regenerate over an authored prompt.
                 "i2v_notes": _motion_notes(scene),
-                "i2v_prompt": "",
+                "i2v_prompt": build_motion_prompt(
+                    dict(scene), dict(style_context or {}) or None
+                ),
                 "i2v_prompt_origin": "manual",
                 "source": "openmontage",
             }

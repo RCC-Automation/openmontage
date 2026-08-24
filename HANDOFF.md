@@ -283,6 +283,15 @@ mounted, so `localhost:8188` is *its* localhost, not the Windows host's. Anythin
 needing a real render has to be run by the human in a host terminal. The same
 isolation blocks model downloads (no network egress).
 
+**The Builder does not watch the session file.** It loads a project into
+memory and shows that until the project is reopened. Export while a project is
+open in the Builder and the user sees a stale blank timeline — worse, any save
+from the stale UI silently overwrites the export. Reload the project after
+every export, before touching anything. The same one-way pattern applies to
+routes: `save_scene_image` copies the file and reports `saved_path`, but
+recording it in the session is the caller's job (the UI sets
+`approved_image_path` itself; so does the export now).
+
 **`new_project` creates folders, never a session.** The route makes the
 directory skeleton and names a `session_path` it does not write; the Builder UI
 writes the first session itself from its own in-memory defaults right after

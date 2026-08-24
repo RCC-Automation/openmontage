@@ -420,6 +420,30 @@ class VRGDGProjectSync(BaseTool):
             casting=casting,
         )
         warnings = casting_warnings + warnings
+
+        # Stills are pushed before the save so their landed paths can be
+        # recorded in the same session write. VRGDG's save_scene_image route
+        # only copies the file - recording where it landed is the caller's
+        # job, exactly as the Builder UI does after calling it.
+        pushed: list[str] = []
+        if inputs.get("push_approved_stills", True):
+            pushed, saved_paths, push_warnings = self._push_stills(
+                project_dir, project_folder, scene_plan, scene_map
+            )
+            warnings.extend(push_warnings)
+            if saved_paths:
+                from lib.vrgdg_bridge import stable_segment_id
+
+                by_segment = {
+                    stable_segment_id(scene_id): path
+                    for scene_id, path in saved_paths.items()
+                }
+                for segment in session.get("segments", []):
+                    landed = by_segment.get(str(segment.get("id") or ""))
+                    if landed:
+                        segment["image"] = landed
+                        segment["approved_image_path"] = landed
+
         self._client.save_session(project_folder, session)
 
         extras: dict[str, Any] = {}
@@ -438,13 +462,6 @@ class VRGDGProjectSync(BaseTool):
                     extras["srt_written"] = True
                 except VRGDGError as exc:
                     warnings.append(f"could not write the project SRT: {exc}")
-
-        pushed: list[str] = []
-        if inputs.get("push_approved_stills", True):
-            pushed, push_warnings = self._push_stills(
-                project_dir, project_folder, scene_plan, scene_map
-            )
-            warnings.extend(push_warnings)
 
         scene_map.save(project_dir, vrgdg_project_folder=project_folder)
 
@@ -638,32 +655,45 @@ class VRGDGProjectSync(BaseTool):
         project_folder: str,
         scene_plan: dict[str, Any],
         scene_map: SceneMap,
-    ) -> tuple[list[str], list[str]]:
-        """Send approved stills over as each scene's Builder image."""
+    ) -> tuple[list[str], dict[str, str], list[str]]:
+        """Send approved stills over as each scene's Builder image.
+
+        Returns (pushed scene ids, {scene_id: landed path}, warnings). The
+        landed paths matter: the route copies the file and reports where it
+        put it, and the session must be told - the Builder UI does the same
+        after every save_scene_image call.
+        """
         manifest_path = project_dir / "artifacts" / "asset_manifest.json"
         if not manifest_path.is_file():
-            return [], []
+            return [], {}, []
         try:
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
-            return [], [f"could not read asset_manifest.json: {exc}"]
+            return [], {}, [f"could not read asset_manifest.json: {exc}"]
 
         by_scene = approved_images_by_scene(manifest)
         pushed: list[str] = []
+        landed: dict[str, str] = {}
         warnings: list[str] = []
         scenes = [s for s in (scene_plan.get("scenes") or []) if isinstance(s, dict)]
         for index, scene in enumerate(scenes):
-            rel = by_scene.get(str(scene.get("id")))
+            scene_id = str(scene.get("id"))
+            rel = by_scene.get(scene_id)
             if not rel:
                 continue
             source = project_dir / rel
             if not source.is_file():
-                warnings.append(f"{scene.get('id')}: {rel} is in the manifest but not on disk")
+                warnings.append(f"{scene_id}: {rel} is in the manifest but not on disk")
                 continue
             try:
                 # VRGDG numbers scenes from 1, in timeline order.
-                self._client.save_scene_image(project_folder, index + 1, str(source.resolve()))
-                pushed.append(str(scene.get("id")))
+                response = self._client.save_scene_image(
+                    project_folder, index + 1, str(source.resolve())
+                )
+                pushed.append(scene_id)
+                saved = str(response.get("saved_path") or "")
+                if saved:
+                    landed[scene_id] = saved
             except VRGDGError as exc:
-                warnings.append(f"{scene.get('id')}: could not push the still: {exc}")
-        return pushed, warnings
+                warnings.append(f"{scene_id}: could not push the still: {exc}")
+        return pushed, landed, warnings

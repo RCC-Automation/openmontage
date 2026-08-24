@@ -172,7 +172,7 @@ segments carrying prompts, images, renders or notes and refuse if any exist.
 
 ---
 
-## 9. Export writes motion *notes*, not a video prompt
+## 9. Export writes motion *notes*, not a video prompt — **revised by #33**
 
 *accepted*
 
@@ -759,6 +759,56 @@ last step is the standing goal; candidate paths are seeding through VRGDG's
 pins every scene to an old model. The record carries `chosen_by: human` (#15)
 and the export reports `casting_applied` so the choice is visible at the
 moment it lands.
+
+---
+
+## 33. OpenMontage authors the prompts and renders the stills — and the drift it caught
+
+*accepted — 2026-08-24 · revises #9*
+
+**Context.** The user opened the Builder and asked the right question: no
+images, no prompt in Image Prep, no prompt in Video Prep — "where are you using
+OpenMontage for all this?" #9 had left `i2v_prompt` empty on purpose, and the
+stills lane existed but nothing was driving it.
+
+**Decision, in three parts.**
+
+1. **Export authors `i2v_prompt`** via `build_motion_prompt` — description, the
+   scene's authored `movement` text (which beats the enum phrase: "the camera
+   orbits a full 360 degrees … she does not turn" IS the shot), lighting
+   continuity, style. #9's reasoning was "don't guess at video-model phrasing";
+   the user's direction is that OpenMontage is the prompt writer — which is L5
+   of the plan. The notes stay: they are the brief the prompt was written from,
+   and the Builder's Gemma step can still regenerate over an authored prompt.
+   Editorial fields (transitions) stay out of the prompt — they belong to the
+   cut, not the clip.
+
+2. **OpenMontage renders the scene stills itself** — `comfyui_image` with
+   `vrgdg_build`/`zimage`, the cast model, the cast seed, exactly the payload
+   shape the screen test measured the model with. The manifest feeds the
+   existing stills push.
+
+3. **The push now completes the handshake.** `save_scene_image` copies the file
+   and reports where it landed; recording that in the session is the caller's
+   job — the Builder UI sets `approved_image_path` after every call, and the
+   export now does the same (`image` + `approved_image_path`), in the same
+   session write. Same lesson as `new_project`: VRGDG routes do file work and
+   leave state to the caller.
+
+**What the first run caught.** sc2's description read "The same clockwork
+heroine…" — a cross-scene reference no image model can resolve. The render came
+back a different woman: auburn hair, different face. Our own calibrated axes
+measured it — face 0.34, look 0.33 — and after restating the character in the
+description, 0.55 / 0.68. That is #29 observed in production on the first
+automated run: **the description carries the identity, so every scene's
+description must restate the character.** The systemic fix is a character block
+injected per scene (the L6 direction); until then it is an authoring rule.
+
+**Cost.** Authored prompts can drift from what the Builder's own prompt step
+would write; `i2v_prompt_origin` stays `"manual"` so regeneration is always one
+click. And a stale UI is now dangerous in a new way: the Builder holds the
+session in memory, so an export under an open project is invisible until
+reload — and a save from the stale UI overwrites it. Reload before touching.
 
 ---
 
