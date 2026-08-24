@@ -145,8 +145,10 @@ class ScreenTest(BaseTool):
     dependencies = []
     install_instructions = (
         "Needs ComfyUI running with the comfyui-vrgamedevgirl pack. Identity "
-        "stability and prompt adherence additionally need torch and transformers "
-        "for CLIP; without them the run still works and scores on the remaining axes."
+        "stability and prompt adherence additionally need CLIP: "
+        "pip install -r requirements-clip.txt (CPU torch, ~0.2s per image, and "
+        "deliberately off the render GPU). Without it the run still works and "
+        "scores on the remaining axes, but those two carry 70% of the weight."
     )
     agent_skills = ["comfyui"]
 

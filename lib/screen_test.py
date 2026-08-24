@@ -299,8 +299,18 @@ def identity_stability(paths: Sequence[Path]) -> float | None:
         mean = sum(similarities) / len(similarities)
     except Exception:
         return None
-    # CLIP similarity between renders of one brief lives roughly in 0.6-1.0;
-    # rescaling makes the differences that matter visible in the ranking.
+    # NOT YET CALIBRATED against the right population. Across *different* models
+    # on one brief and seed the observed cosine ran 0.645-0.936, but this axis
+    # compares one model across *seeds*, which should sit higher and tighter.
+    # Recalibrate from a multi-seed run before trusting the spread; the two
+    # bands that were guessed rather than measured - detail and prompt
+    # adherence - were both wrong, one of them by an order of magnitude.
+    #
+    # A second limit worth stating: CLIP ViT-B/32 embeds whole images, not
+    # faces. Two renders sharing framing, palette and hair can read as similar
+    # while showing different people, so this measures overall consistency and
+    # only approximates identity. A face-recognition embedding cropped to the
+    # detected face would measure the thing this axis is named after.
     return max(0.0, min(1.0, (mean - 0.6) / 0.4))
 
 
@@ -320,9 +330,17 @@ def prompt_adherence(paths: Sequence[Path], prompt: str) -> float | None:
         mean = sum(scores) / len(scores)
     except Exception:
         return None
-    # CLIP text-image cosine sits far lower than image-image; 0.15-0.35 is the
-    # working band for a detailed prompt.
-    return max(0.0, min(1.0, (mean - 0.15) / 0.20))
+    # Calibrated on fifteen real renders of one detailed brief: the observed
+    # cosine ran 0.293 to 0.388, entirely inside the top fifth of the 0.15-0.35
+    # band this used to assume, so thirteen of fifteen saturated at 1.00 and the
+    # axis said nothing. Over the real range it orders sensibly - the renders
+    # that dropped the "clockwork" and "brass filigree" elements score lowest,
+    # the ones with a full gear collar highest.
+    #
+    # It is deliberately not a soundness check: a colour-blown render scored
+    # 0.374, near the top, because it still depicts the thing that was asked
+    # for. Rejecting broken output is technical_score's job.
+    return max(0.0, min(1.0, (mean - 0.29) / 0.10))
 
 
 # Detail measured on the sharpest tiles of the frame. Calibrated against eleven

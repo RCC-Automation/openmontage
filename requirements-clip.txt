@@ -1,0 +1,22 @@
+# OpenMontage - CLIP scoring dependencies
+#
+# Needed by the axes that judge images against each other and against the
+# brief: screen_test's identity_stability and prompt_adherence, plus
+# clip_search and corpus_builder. Without these the tools still run and simply
+# report those axes as unmeasured.
+#
+# CPU is the right target even on a GPU machine. lib/clip_embedder picks CUDA
+# when it is visible, and ROCm presents itself as CUDA - so a GPU-capable torch
+# would put CLIP on the same device ComfyUI renders with, competing for memory
+# during a sweep. ViT-B/32 embeds an image in ~0.2s on CPU, which is nothing
+# beside a 35s render.
+#
+#   pip install -r requirements-clip.txt
+#
+# On Windows the default PyPI torch wheel is already CPU-only. On Linux, force
+# it:  pip install torch --index-url https://download.pytorch.org/whl/cpu
+#
+# The weights (openai/clip-vit-base-patch32, ~350 MB) download from HuggingFace
+# on first use and are cached.
+torch>=2.0
+transformers>=4.30
