@@ -155,6 +155,26 @@ def main() -> int:
     registry.scan()
     registry.save()
 
+    # A loop can begin outside the loop. `quick_screen_test.py` is a perfectly
+    # good way to start - render everything once, then decide it is worth a
+    # conversation - and a run that happened is a round whether or not this
+    # script recorded it. Adopting it beats refusing to react to work the user
+    # can plainly see on their screen.
+    if args.react and not session.rounds and report.get("candidates"):
+        adopted = session.start_round({
+            "models": [c.get("model") for c in report["candidates"]],
+            "seeds": report.get("seeds") or [7777],
+            "question": "what does each model do with this prompt?",
+            "brief": report.get("brief", ""),
+            "adopted_from": "screen_test run outside the loop",
+        })
+        adopted.candidates = report["candidates"]
+        adopted.seconds = float(report.get("elapsed_minutes") or 0) * 60
+        if not session.brief:
+            session.brief = report.get("brief", "")
+        print(f"adopted an existing round of {len(adopted.candidates)} candidates "
+              f"as round 1")
+
     brief = session.brief
     if args.react:
         reading = interpret(args.react)

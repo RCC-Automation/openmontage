@@ -1,0 +1,4 @@
+adopted an existing round of 12 candidates as round 1
+round 2: does the identity hold across seeds for 4 model(s)?
+brief: A clockwork heroine with luminous pink hair and a brass filigree collar, brass and copper plating at the shoulders, warm amber workshop light, cinematic portrait, intricate detail
+matrix: {"models": ["juggernautXL_ragnarok.safetensors", "gonzalomoZpop_v40.safetensors", "darkBeast30BF16INT8_dbzit9DIMRclaw.safetensors", "zImageUltimateNSFW_v20.safetensors"], "seeds": [7777, 1234, 9090]}

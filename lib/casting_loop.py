@@ -131,7 +131,11 @@ _DONE = (
     "were done",
 )
 
-_PICK = re.compile(r"#\s*(\d+)")
+#: A pick with or without the hash. People type "#3" and they also type
+#: "4, 6, 7 and 8", and a parser that only understands the first form selects
+#: nothing from the second - which reads as being ignored, not as an error.
+#: Bounded to two digits so a year or a percentage is not read as a pick.
+_PICK = re.compile(r"#\s*(\d{1,2})\b|(?<![\w#.])(\d{1,2})(?![\w.])")
 _KEEP = re.compile(r"\bkeep (?:the |her |his )?([a-z][a-z \-]{2,30}?)(?:[,.]|$| and | but )")
 _LOSE = re.compile(r"\b(?:lose|drop|without|no more) (?:the |her |his )?([a-z][a-z \-]{2,30}?)(?:[,.]|$| and | but )")
 
@@ -151,7 +155,12 @@ def interpret(reaction: str) -> Reading:
             reading.done = True
             break
 
-    reading.picks = [f"#{n}" for n in _PICK.findall(text)]
+    picks: list[str] = []
+    for hashed, bare in _PICK.findall(text):
+        n = hashed or bare
+        if n and f"#{int(n)}" not in picks:
+            picks.append(f"#{int(n)}")
+    reading.picks = picks
 
     for phrase, axis in sorted(_WIDEN.items(), key=lambda kv: -len(kv[0])):
         if phrase in text:
@@ -167,7 +176,58 @@ def interpret(reaction: str) -> Reading:
 
     if not reading.understood and text.strip():
         reading.unknown = [str(reaction).strip()]
+    else:
+        reading.unknown = _leftovers(text, reading)
     return reading
+
+
+#: Words that carry no instruction and are not worth asking about. Everything
+#: else that survives parsing is.
+_FILLER = frozenset(
+    """a an and or the this that these those i we you it is are was be to of for
+    with on in at as but so then just really quite very bit more less like likes
+    liked prefer please thanks thank ok okay yes no not do does did can could
+    would should me my mine them they he she her his one ones them all also too
+    them there here what which how why when where""".split()
+)
+
+
+def _leftovers(text: str, reading: Reading) -> list[str]:
+    """Fragments a partly-understood reaction left behind.
+
+    The point of the unknown list is that nothing said gets silently dropped.
+    Reporting it only when *nothing* parsed misses the more dangerous case: a
+    reaction that was mostly understood, so it runs, with one instruction
+    quietly discarded. A typo'd pick - "4, u, 7" - is exactly that, and it seeds
+    a whole round on the wrong models.
+
+    A bare letter or a stray token next to real picks is worth one question. A
+    round is not.
+    """
+    consumed: set[str] = set()
+    for phrase in list(_WIDEN) + list(_DONE):
+        if phrase in text:
+            consumed.update(re.findall(r"[a-z]+", phrase))
+    for word in _ADJUSTMENTS:
+        if re.search(rf"\b{re.escape(word)}\b", text):
+            consumed.add(word)
+    for pinned in reading.pins + reading.drops:
+        consumed.update(pinned.split())
+    consumed.update({"keep", "lose", "drop", "without"})
+
+    # Contractions are stripped before tokenising rather than filtered after.
+    # Dropping every one-character token would also drop a typo'd pick - the
+    # "u" in "4, u, 7" - which is exactly the fragment worth asking about.
+    cleaned = re.sub(r"'(?:s|t|re|ve|ll|d|m)\b", "", text)
+
+    out: list[str] = []
+    for token in re.findall(r"[a-z0-9#]+", cleaned):
+        bare = token.lstrip("#")
+        if not bare or bare.isdigit() or bare in consumed or bare in _FILLER:
+            continue
+        if bare not in out:
+            out.append(bare)
+    return out
 
 
 def next_matrix(
@@ -316,12 +376,19 @@ def phone_sheet(
     title: str = "",
     columns: int = 2,
     cell: int = 620,
+    start_index: int = 1,
 ) -> Any:
     """A contact sheet meant to be judged on a phone.
 
     ``picks`` is (image_path, label, detail) in the order they should be
     numbered. The number under the picture is what the human types back, so
     position is the identity here - see ``_models_for``.
+
+    ``start_index`` continues the numbering across a split. Twelve candidates
+    stacked two-wide is a 1:7 strip, and a phone that fits the whole thing to
+    the screen renders every face too small to judge. Six per sheet is roughly
+    a phone's own aspect - but the numbering has to run 1-6 then 7-12, or the
+    pick resolves against the wrong model.
 
     The desktop sheet packs four 384px cells with an 11px caption, which is
     fine on a monitor and unreadable held in one hand. This one is two columns,
@@ -369,7 +436,7 @@ def phone_sheet(
 
         # The number rides on the image, not beside it: a caption scrolls out of
         # frame, a badge does not.
-        n = str(index + 1)
+        n = str(index + start_index)
         bw = 62
         draw.rectangle([ox + 10, oy + 10, ox + 10 + bw, oy + 10 + bw], fill=(0, 0, 0))
         draw.rectangle([ox + 10, oy + 10, ox + 10 + bw, oy + 10 + bw], outline=(255, 214, 92), width=3)

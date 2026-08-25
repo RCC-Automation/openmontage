@@ -102,6 +102,38 @@ def test_pins_and_drops_are_read():
     assert r.drops == ["goggles"]
 
 
+def test_a_bare_number_is_a_pick_too():
+    """People type "#3" and they type "4, 6, 7 and 8".
+
+    A parser that only understands the hashed form selects *nothing* from the
+    second, which reads as being ignored rather than as an error.
+    """
+    assert interpret("I like 4, 6, 7 and 8").picks == ["#4", "#6", "#7", "#8"]
+
+
+def test_a_typo_next_to_real_picks_is_asked_about_not_dropped():
+    """The dangerous half-understood case, found in real use.
+
+    "4, u, 7 and 8" parses three picks and one typo. Reporting the unknown list
+    only when *nothing* parsed would run the round on three models when four
+    were meant, silently.
+    """
+    r = interpret("I like 4, u, 7 and 8")
+    assert r.picks == ["#4", "#7", "#8"]
+    assert r.unknown == ["u"]
+
+
+def test_contractions_do_not_become_questions():
+    """The "s" in "that's" is punctuation debris, not an instruction."""
+    assert interpret("that's her").unknown == []
+
+
+def test_an_understood_adjustment_is_not_also_reported_as_unknown():
+    r = interpret("warmer")
+    assert r.adjust == {"color_temperature": "warm"}
+    assert r.unknown == []
+
+
 def test_a_phrase_it_does_not_know_is_reported_not_guessed():
     """The whole point of the unknown list.
 
