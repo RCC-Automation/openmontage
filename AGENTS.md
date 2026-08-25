@@ -40,8 +40,9 @@ Three constraints that will waste your time if you do not know them:
 
 1. **The host is AMD/ROCm, not CUDA.** Triton, SageAttention and xformers are
    unavailable. Prefer fp8/GGUF/int8 weights. **`bitsandbytes` DOES work**
-   (corrected 2026-08-25), and **set `TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL=1`**
-   — measured 8.2× faster, 24× less memory on attention. See
+   (corrected 2026-08-25), and `TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL=1`
+   is worth 8.2× on isolated attention but showed **no gain on a real render**
+   — set it for training, not as a rendering fix. See
    [`wiki/comfyui/this-machine.md`](wiki/comfyui/this-machine.md).
 2. **Models live outside the ComfyUI install**, in ComfyUI Desktop's shared tree.
    See `HANDOFF.md` for the paths.

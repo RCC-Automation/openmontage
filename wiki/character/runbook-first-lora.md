@@ -20,7 +20,7 @@ actually happened, including two corrections to the plan.
 
 | | |
 |---|---|
-| `TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL=1` | set at **User** scope. **Needs a ComfyUI restart to take effect** |
+| `TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL=1` | set at **User** scope. **Gate FAILED — no rendering speedup.** See Phase 0 |
 | `insightface` 1.0.1 | installed into the ComfyUI venv and **verified running**, not just importing |
 | `buffalo_l` | copied to `models\insightface\models\buffalo_l\` |
 | FaceID PlusV2 SDXL | 1418.6 MB adapter + 354.6 MB LoRA (1680 tensors, header checked) |
@@ -59,9 +59,37 @@ face in a real casting render, and returns a unit-norm 512-d embedding.
 4. Do **not** set `PYTORCH_HIP_ALLOC_CONF=backend:malloc` — it crashes PyTorch
    on this stack.
 
-**Gate:** re-run one casting round and compare wall time against the ~10.3 min
-of round 1. If it is not meaningfully faster, stop and find out why before
-building on it.
+**Gate:** re-run a render and compare wall time against a known baseline.
+
+### The gate FAILED, 2026-08-25 — and this is the honest record
+
+| | |
+|---|---|
+| darkBeast30 in casting round 1, before the flag | **76 s** |
+| darkBeast30 after the flag, ComfyUI restarted | **75 s** |
+
+**No benefit.** The 8.2× came from a microbenchmark of *isolated* SDPA. A real
+render is dominated by an 11.7 GB model load, convolutions and a VAE that uses
+split attention regardless — so the extrapolation from benchmark to render was
+wrong.
+
+**Step 3 above does not work either.** ComfyUI has never emitted the
+`still experimental` warning in any log, including logs from before the flag
+existed, so its absence tells you nothing about whether the flag reached the
+process. We therefore cannot distinguish "the render is not attention-bound"
+from "Electron did not pass the variable to its Python child".
+
+**What to do about it:**
+
+- **Keep the flag set.** It costs nothing and may matter in training, where
+  attention backward is a larger share and where 24× less peak memory could
+  decide whether a run fits at all.
+- **Set it explicitly in the training process's own environment** at Phase 5,
+  where we control the launch rather than relying on inheritance.
+- **Do not count on it for rendering**, and do not count on it to prevent
+  another OOM.
+- If it matters enough to resolve, the test is to launch ComfyUI from a shell
+  with the variable exported and compare against the Desktop launch.
 
 ---
 

@@ -41,14 +41,44 @@ Measured here, pure SDPA forward + backward, batch 4 × 8 heads × 2048 × 64, b
 | unset | 2.164 s | 2.250 GB |
 | **`=1`** | **0.264 s** | **0.094 GB** |
 
-**8.2× faster and 24× less memory.** PyTorch prints the hint itself at every
-SDPA call, and the warning disappears once the flag is set.
+**8.2× faster and 24× less memory — on that benchmark.**
 
 **"No Triton" does not mean "no flash attention"** — AOTriton is prebuilt
-inside the torch ROCm wheel. This is probably the single most valuable thing on
-this page: it applies to *rendering*, not just training, and the memory
-reduction directly addresses the OOM that killed the backend on 2026-08-25
-(see [failure-modes](failure-modes.md)).
+inside the torch ROCm wheel, and that part stands.
+
+### But it did NOT speed up a real render — tested 2026-08-25
+
+The flag was set at User scope, ComfyUI restarted, and a single Z-Image render
+timed against its own prior measurement:
+
+| | |
+|---|---|
+| darkBeast30, round 1, before the flag | **76 s** |
+| darkBeast30, after the flag | **75 s** |
+
+**No benefit.** Two explanations and we have not separated them:
+
+1. **A render is not attention-bound at these dimensions.** ComfyUI logs
+   `Using pytorch attention` for the model but `Using split attention in VAE`,
+   and the run is dominated by an 11.7 GB model load, convolutions and the VAE.
+   The microbenchmark isolated attention; a render does not.
+2. **The flag may not reach ComfyUI's backend.** ComfyUI Desktop is an Electron
+   app that spawns the Python process, and we did not confirm the child inherits
+   the User-scope variable.
+
+**The warning cannot be used to tell which.** ComfyUI has never emitted
+`still experimental` in any log — including logs from before the flag was set —
+so its absence is not evidence. That was the check the runbook proposed, and it
+does not work here.
+
+**Where it may still matter:** training, where the attention backward pass is a
+larger share of the work and where the 24× memory reduction could decide whether
+a run fits at all. That is untested. Set it in any training process, where the
+environment is under our control — and do not assume it is helping rendering.
+
+This is [measuring before believing](../practice/measuring-before-believing.md)
+applied to our own claim: the benchmark was real, the extrapolation from it was
+not.
 
 Do **not** set `PYTORCH_HIP_ALLOC_CONF=backend:malloc` — it crashes PyTorch on
 this stack.

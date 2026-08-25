@@ -54,11 +54,13 @@ last of these matches the HIP kernels directly.
   steps with real uint8 optimiser state. Verified here against the ComfyUI venv.
   This unblocks every kohya-family trainer, including VRGDG's bundled one,
   which hard-codes `AdamW8Bit`.
-- **Set `TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL=1`.** PyTorch-ROCm ships
-  prebuilt flash-attention kernels gated behind this flag on gfx1151. Measured
-  here: **8.2× faster, 24× less peak memory** on SDPA forward+backward. It
-  applies to rendering as much as training, and the memory saving bears directly
-  on the OOM that killed the backend the same day. Do NOT set
+- **`TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL=1` — real on a benchmark, NOT on a
+  render.** PyTorch-ROCm ships prebuilt flash-attention kernels gated behind
+  this flag on gfx1151, and on isolated SDPA it is **8.2× faster with 24× less
+  peak memory**. But a real ComfyUI render measured **75 s against a 76 s
+  baseline — no benefit** — and ComfyUI never logs the warning that would tell
+  us whether the flag even reached its process. Set it for training, where we
+  control the environment; do not assume it helps rendering. Do NOT set
   `PYTORCH_HIP_ALLOC_CONF=backend:malloc` — it crashes PyTorch on this stack.
 
 ---
