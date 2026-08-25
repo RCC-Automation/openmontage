@@ -1,0 +1,26 @@
+round 2: does the identity hold across seeds for 2 model(s)?
+brief: A clockwork heroine with luminous pink hair and a brass filigree collar, brass and copper plating at the shoulders, warm amber workshop light, cinematic portrait, intricate detail
+matrix: {"models": ["juggernautXL_ragnarok.safetensors", "gonzalomoZpop_v40.safetensors"], "seeds": [7777, 1234, 9090]}
+Applied providers: ['CPUExecutionProvider'], with options: {'CPUExecutionProvider': {}}
+find model: C:\Users\Barrul/.insightface\models\buffalo_l\1k3d68.onnx landmark_3d_68 ['None', 3, 192, 192] 0.0 1.0
+Applied providers: ['CPUExecutionProvider'], with options: {'CPUExecutionProvider': {}}
+find model: C:\Users\Barrul/.insightface\models\buffalo_l\2d106det.onnx landmark_2d_106 ['None', 3, 192, 192] 0.0 1.0
+Applied providers: ['CPUExecutionProvider'], with options: {'CPUExecutionProvider': {}}
+find model: C:\Users\Barrul/.insightface\models\buffalo_l\det_10g.onnx detection [1, 3, '?', '?'] 127.5 128.0
+Applied providers: ['CPUExecutionProvider'], with options: {'CPUExecutionProvider': {}}
+find model: C:\Users\Barrul/.insightface\models\buffalo_l\genderage.onnx genderage ['None', 3, 96, 96] 0.0 1.0
+Applied providers: ['CPUExecutionProvider'], with options: {'CPUExecutionProvider': {}}
+find model: C:\Users\Barrul/.insightface\models\buffalo_l\w600k_r50.onnx recognition ['None', 3, 112, 112] 127.5 127.5
+set det-size: (640, 640)
+C:\Users\Barrul\Documents\Github\openmontage\.venv\Lib\site-packages\insightface\utils\face_align.py:23: FutureWarning: `estimate` is deprecated since version 0.26 and will be removed in version 2.2. Please use `SimilarityTransform.from_estimate` class constructor instead.
+  tform.estimate(lmk, dst)
+Loading weights:   0%|          | 0/398 [00:00<?, ?it/s]Loading weights: 100%|██████████| 398/398 [00:00<00:00, 49276.29it/s]
+C:\Users\Barrul\Documents\Github\openmontage\.venv\Lib\site-packages\insightface\utils\face_align.py:23: FutureWarning: `estimate` is deprecated since version 0.26 and will be removed in version 2.2. Please use `SimilarityTransform.from_estimate` class constructor instead.
+  tform.estimate(lmk, dst)
+
+2 candidates in 244s
+   1. juggernautXL_ragnarok              face 0.31  look 0.88  prompt 0.87  27s
+   2. gonzalomoZpop_v40                  face 0.28  look 0.91  prompt 0.47  49s
+
+sheet: C:\Users\Barrul\Documents\Github\openmontage\projects\casting-wp2\casting\round_2_sheet.jpg
+EXIT=0

@@ -30,6 +30,26 @@ reality is itself a finding worth reporting.
    Changing a decision without reading why it was made is how the same bug gets
    reintroduced.
 
+5. **`wiki/index.md`** — what we already know. Scan the catalog; read any page
+   your task touches. The wiki exists so you do not rediscover a measurement
+   that already cost GPU time once, and the `status` field tells you how far to
+   trust each page: **measured** (numbers from this machine) · **researched**
+   (verified, not run here) · **assumed** (a stated guess) · **stub** (empty).
+
+6. **`QUESTIONS.md`** — open questions with the assumption currently being built
+   on. If your task touches one, say so before you start: you may be about to
+   answer it, or about to build further on a guess.
+
+Then check the wiki is not rotting:
+
+```bash
+python scripts/wiki_lint.py --stale 45
+```
+
+Broken links, missing frontmatter and pages absent from the index are errors.
+Stale pages are warnings — a `measured` page nobody has touched in six weeks is
+not necessarily wrong, but it is worth a glance if you are about to rely on it.
+
 If the task involves a `comfyui_*` tool, also read
 `.agents/skills/comfyui/SKILL.md` — mandatory per AGENT_GUIDE, and it carries the
 three graph sources including `vrgdg_build`.
@@ -126,6 +146,8 @@ Uncommitted: <files, or "clean">
 ComfyUI: <reachable / down / pack not loaded>
 Models: <what is ready, what is still missing>
 Tests: <n passed / what failed>
+Wiki: <clean, or n errors / n stale>
+Open questions touching this task: <Qn, or none>
 PROGRESS.md says next: <the next step from its list>
 ```
 

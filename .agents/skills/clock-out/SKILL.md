@@ -80,6 +80,48 @@ Do not rewrite it every session. Update it when:
 
 ---
 
+## 4b. Compile what you learned into the wiki
+
+**This is the step that makes the session compound rather than evaporate.**
+`PROGRESS.md` says what happened; the wiki says what we now *know*. A number
+that lives only in a chat transcript is a number the project will pay GPU time
+to rediscover.
+
+Ask what changed in the world's knowledge, not in the repo's state:
+
+| If this session produced | Write it to |
+|---|---|
+| a measurement, a calibration, a benchmark | the relevant page, `status: measured`, **with the number and where it came from** |
+| research read from outside sources | a page with `status: researched` and the URLs in `sources:` |
+| a trap that cost time | the traps page for that tool — the highest-return content in the wiki |
+| a technique that worked, or clearly did not | `practice/` |
+| a question you could not answer | `QUESTIONS.md`, with the assumption you built on |
+
+Rules that keep it honest:
+
+- **Never promote a page to `measured` without a number.** "Works well" is not a
+  measurement and cannot be acted on. Four guessed constants have been checked
+  against this machine's output and all four were wrong.
+- **Update `updated:` whenever you touch a page**, or the staleness check lies.
+- **Add every new page to `wiki/index.md`.** The lint will not guess the row —
+  the index groups pages by meaning.
+- **Append to `wiki/log.md`**, one line per compile or ingest. Never rewrite it.
+- **Do not copy `DECISIONS.md`, `HANDOFF.md` or `PROGRESS.md` into the wiki.**
+  Those stay authoritative for state and rationale; the wiki links to them. The
+  wiki is for knowledge that outlives this project.
+
+Then:
+
+```bash
+python scripts/wiki_lint.py --fix
+```
+
+Broken links become stubs; anything left is an error to fix by hand. **Do not
+commit with the lint failing** — a broken wiki is worse than no wiki, because it
+looks maintained.
+
+---
+
 ## 5. Commit
 
 **Run git in a real terminal on the host.** Never through a Cowork device-bridge
@@ -150,6 +192,9 @@ Do not consider the session closed until every line is true:
 - [ ] `PROGRESS.md` matches `git status` exactly
 - [ ] "Next" names a concrete action, not a direction
 - [ ] New decisions in `DECISIONS.md`; new traps in `HANDOFF.md`
+- [ ] **What was learned is in the wiki**, with `status` and `updated` correct
+- [ ] **`python scripts/wiki_lint.py` passes**; `wiki/log.md` has this session's lines
+- [ ] Unanswered questions in `QUESTIONS.md` with the assumption stated
 - [ ] Work committed, or the uncommitted list written down with a reason
 - [ ] Scratch removed, or the leftovers named for the user
 - [ ] Anything only the human can do is stated plainly

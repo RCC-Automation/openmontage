@@ -450,3 +450,71 @@ def phone_sheet(
     destination.parent.mkdir(parents=True, exist_ok=True)
     sheet.save(destination, quality=92)
     return destination
+
+
+def drift_sheet(
+    rows: Sequence[tuple[str, str, Sequence[str]]],
+    destination,
+    *,
+    title: str = "",
+    cell: int = 400,
+) -> Any:
+    """One row per model, one column per seed - the identity question, seen.
+
+    ``rows`` is (label, detail, image_paths).
+
+    A single frame per model cannot answer whether a model draws the *same*
+    person twice, and a number saying it does not is not persuasive on its own.
+    Three frames side by side are: either it is the same woman or it visibly is
+    not, and the person judging can see which without trusting the metric.
+
+    Rows rather than a grid, because the comparison that matters runs left to
+    right within one model - never between models.
+    """
+    from pathlib import Path as _Path
+
+    try:
+        from PIL import Image, ImageDraw
+    except Exception:
+        return None
+
+    rows = [(l, d, [p for p in paths if _Path(p).is_file()]) for l, d, paths in rows]
+    rows = [r for r in rows if r[2]]
+    if not rows:
+        return None
+
+    pad, label_h = 14, 84
+    columns = max(len(paths) for _, _, paths in rows)
+    title_h = 76 if title else 0
+    width = columns * (cell + pad) + pad
+    height = title_h + len(rows) * (cell + label_h + pad) + pad
+
+    sheet = Image.new("RGB", (width, height), (16, 16, 20))
+    draw = ImageDraw.Draw(sheet)
+    f_title, f_label, f_detail, f_seed = _font(36), _font(28), _font(23), _font(22)
+
+    if title:
+        draw.text((pad + 4, pad + 8), title, fill=(240, 240, 248), font=f_title)
+
+    for row, (label, detail, paths) in enumerate(rows):
+        y = title_h + pad + row * (cell + label_h + pad)
+        for col, path in enumerate(paths):
+            x = pad + col * (cell + pad)
+            try:
+                with Image.open(path) as img:
+                    img = img.convert("RGB")
+                    img.thumbnail((cell, cell))
+                    sheet.paste(img, (x + (cell - img.width) // 2, y))
+            except Exception:
+                draw.rectangle([x, y, x + cell, y + cell], fill=(38, 38, 46))
+            seed = _Path(path).stem.rsplit("_s", 1)[-1]
+            draw.rectangle([x + 8, y + 8, x + 108, y + 44], fill=(0, 0, 0))
+            draw.text((x + 14, y + 12), f"seed {seed}", fill=(255, 214, 92), font=f_seed)
+
+        draw.text((pad + 4, y + cell + 8), label[:44], fill=(236, 236, 244), font=f_label)
+        draw.text((pad + 4, y + cell + 46), detail[:68], fill=(158, 158, 172), font=f_detail)
+
+    destination = _Path(destination)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    sheet.save(destination, quality=92)
+    return destination

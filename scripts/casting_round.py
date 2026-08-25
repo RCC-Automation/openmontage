@@ -103,6 +103,15 @@ def main() -> int:
     ap.add_argument("--show", action="store_true", help="Print the loop so far and stop.")
     ap.add_argument("--sheet-only", action="store_true", help="Rebuild the sheet from the last report.")
     ap.add_argument("--budget", type=float, default=None)
+    ap.add_argument(
+        "--models", nargs="*", default=None,
+        help=(
+            "Force the matrix's models instead of resolving picks against the "
+            "last report. For continuing ONE reaction across a split round - a "
+            "pick of #7 means the sheet the human saw, and after a partial "
+            "round the newest report is not that sheet."
+        ),
+    )
     args = ap.parse_args()
 
     project_dir = Path(init_project(args.project, title=f"Casting: {args.character}",
@@ -197,10 +206,17 @@ def main() -> int:
                                 favourites=reading.picks)
         brief = next_brief(brief, reading)
         session.brief = brief
+        # A pick is a position on the sheet the human was shown. When a round is
+        # split for memory, the newest report is a slice of that round, not the
+        # sheet - so resolving against it would silently cast the wrong models.
+        pick_source = report.get("candidates") or []
+        if args.models:
+            pick_source = [{"model": m} for m in args.models]
+            reading.picks = [f"#{i + 1}" for i in range(len(args.models))]
         matrix, question = next_matrix(
             (session.rounds[-1].spec if session.rounds else {}),
             reading,
-            candidates=report.get("candidates") or [],
+            candidates=pick_source,
             lora_pool=[Path(k).name for k in getattr(registry, "loras", lambda: [])()]
             if hasattr(registry, "loras") else [],
         )
