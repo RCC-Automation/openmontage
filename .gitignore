@@ -107,3 +107,4 @@ venv/
 
 # Machine-local model registry (regenerable by scanning)
 var/
+round2.log
