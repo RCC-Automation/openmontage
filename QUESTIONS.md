@@ -18,6 +18,53 @@ or names the change.
 
 <!-- Add entries at the top. Newest first. -->
 
+### Q6. Should a casting round free VRAM between models?
+
+**Status:** open
+**Raised:** 2026-08-25, running casting round 2
+**Blocks:** rounds with more than a handful of models. Round 2 took the backend
+down and had to be split.
+
+**The situation.** Round 2 asked for four models across three seeds - twelve
+renders, four full model loads, three of them Z-Image UNets. ComfyUI ran out of
+memory, and then **the OOM recovery crashed the process**:
+
+```
+[ERROR] Got an OOM, unloading all loaded models.
+Fatal Python error: Aborted
+  comfy/model_patcher.py:1156 in unpatch_model
+  comfy/model_management.py:2048 in unload_all_models
+```
+
+Freeing memory tried to move tensors off the device, that allocation failed
+too, and Python aborted. So the failure mode is not a failed render - it is a
+dead backend, mid-round, with every result lost. On this machine that costs
+about twenty minutes and a restart the agent cannot perform.
+
+VRGDG ships a route for exactly this: `build_clear_memory_prompt`, described in
+its own registry as "graph that unloads models and frees VRAM". `screen_test`
+does not call it between candidates.
+
+**What I assumed to keep going.** Nothing automatic. The runner now warns above
+nine renders in one round, and reports a dead backend honestly instead of
+"no candidate produced a single image" - which said nothing about the real
+cause. Rounds get split by hand.
+
+**What changes if the answer is different.** Queue `clear_memory` between
+candidates in `screen_test`, probably behind a flag defaulted on for
+mixed-family matrices. Two costs to weigh: it adds a graph submission per
+candidate, and - more importantly - **it may corrupt the render clock's
+learning**, since timings are measured from submission and an unload between
+models changes what a "typical" load costs. That interacts with the existing
+trap about busy-machine timings, so it needs measuring rather than assuming.
+
+**Recommendation:** add it, on by default when a round spans more than one
+model *family*, and record in the run outcome that a cleanup ran so the render
+clock can keep those samples separate.
+
+---
+
+
 ### Q5. Should `required_artifacts_in` be enforced, or is it documentation?
 
 **Status:** open

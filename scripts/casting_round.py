@@ -41,6 +41,11 @@ from tools._comfyui.client import ComfyUIClient  # noqa: E402
 from tools._comfyui.vrgdg import VRGDGClient  # noqa: E402
 from tools.graphics.screen_test import ScreenTest  # noqa: E402
 
+#: Above this many renders in one round, warn. Not a limit - the render clock
+#: owns budgeting - just the point past which a mixed-family round has actually
+#: taken this machine's backend down.
+_RENDERS_BEFORE_A_WARNING = 9
+
 
 def _report(project_dir: Path) -> dict:
     """The newest casting report under the project, or an empty one."""
@@ -203,6 +208,16 @@ def main() -> int:
         matrix = {"models": [Path(k).name for k in registry.eligible()]}
         question = f"what does each of {len(matrix['models'])} model(s) do with this prompt?"
 
+    # Each candidate is a full model load. Enough of them in one round and the
+    # backend runs out of memory, which on this machine kills the process
+    # outright rather than failing the render. Say the number before spending
+    # twenty minutes finding out.
+    span = len(matrix.get("models") or []) * len(matrix.get("seeds") or [7777])
+    if span > _RENDERS_BEFORE_A_WARNING:
+        print(f"note: {span} renders across {len(matrix['models'])} model(s). "
+              f"Large mixed-family rounds have OOM'd the backend here - if it "
+              f"dies, split the picks across two rounds.")
+
     print(f"round {len(session.rounds) + 1}: {question}")
     print("brief:", brief)
     print("matrix:", json.dumps(matrix))
@@ -224,7 +239,22 @@ def main() -> int:
     result = ScreenTest().execute(inputs)
     rnd.seconds = round(time.time() - started, 1)
     if not result.success:
-        print("FAIL:", result.error)
+        # A round that rendered nothing usually means the server went away
+        # mid-round, and "no candidate produced an image" says nothing about
+        # that. Check before reporting, because the two have completely
+        # different answers: one is a bad matrix, the other is a dead backend.
+        if not VRGDGClient().is_available():
+            print("FAIL: ComfyUI stopped responding during the round.")
+            print("      Its most common cause here is running out of memory - "
+                  "the OOM handler itself can abort the process while unloading.")
+            print("      Restart ComfyUI Desktop, then re-run this exact command; "
+                  "the reaction is already recorded and the round will simply "
+                  "run again.")
+        else:
+            print("FAIL:", result.error)
+        # An empty round is not a round. Leaving it in the history would claim
+        # a round happened and push the next one to the wrong number.
+        session.rounds = [r for r in session.rounds if r.candidates]
         session.save()
         return 1
 
