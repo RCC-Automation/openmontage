@@ -43,10 +43,23 @@ record. The human stops being a courier between two apps.
 | Stack | **ROCm 7.14**, PyTorch 2.12.0+rocm7.14.0, Python 3.13.12 |
 | Attention | pytorch attention. `comfy_kitchen` HIP backend available (fp8/int8/w4a4/AWQ kernels). **Triton and SageAttention are not available** |
 
-**This is not a CUDA box.** Anything needing Triton, SageAttention, xformers,
-bitsandbytes or CUDA-only kernels will fail or silently fall back. Capacity is
-not the constraint; memory bandwidth is. Prefer fp8, GGUF and int8-convrot
-weights — the last of these matches the HIP kernels directly.
+**This is not a CUDA box.** Anything needing Triton, SageAttention, xformers or
+CUDA-only kernels will fail or silently fall back. Capacity is not the
+constraint; memory bandwidth is. Prefer fp8, GGUF and int8-convrot weights — the
+last of these matches the HIP kernels directly.
+
+**Corrected 2026-08-25 — two things this file had wrong:**
+
+- **`bitsandbytes` works.** 0.50.1 loads with a ROCm backend and `AdamW8bit`
+  steps with real uint8 optimiser state. Verified here against the ComfyUI venv.
+  This unblocks every kohya-family trainer, including VRGDG's bundled one,
+  which hard-codes `AdamW8Bit`.
+- **Set `TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL=1`.** PyTorch-ROCm ships
+  prebuilt flash-attention kernels gated behind this flag on gfx1151. Measured
+  here: **8.2× faster, 24× less peak memory** on SDPA forward+backward. It
+  applies to rendering as much as training, and the memory saving bears directly
+  on the OOM that killed the backend the same day. Do NOT set
+  `PYTORCH_HIP_ALLOC_CONF=backend:malloc` — it crashes PyTorch on this stack.
 
 ---
 
@@ -180,6 +193,11 @@ status code.
 `.claude/commands/*.md` in this repo, so they work when Claude Code runs *in this
 folder*. In a Cowork session there is no slash command — say "clock out" and the
 agent follows `.agents/skills/clock-out/SKILL.md` directly.
+
+Since 2026-08-25 the slash command is the **only** Claude Code entry point. The
+duplicate `.claude/skills/clock-in|clock-out/SKILL.md` copies were deleted so
+`.agents/skills/` is the single source and the two cannot drift apart. The cost:
+they no longer auto-trigger on phrases like "where were we" — type `/clock-in`.
 
 **A finished download can report as partial.** The installer decides `[have]`
 two different ways. Entries with a known expected size are checked byte-for-byte

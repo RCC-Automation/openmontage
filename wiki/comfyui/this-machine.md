@@ -2,7 +2,7 @@
 title: This machine, and why it decides everything
 status: measured
 updated: 2026-08-25
-sources: [../../HANDOFF.md]
+sources: [../../HANDOFF.md, https://github.com/ROCm/ROCm/issues/6034, https://huggingface.co/docs/bitsandbytes/main/en/installation]
 ---
 
 Almost every guide you will read about ComfyUI, LoRA training and diffusion
@@ -22,21 +22,69 @@ any page that recommends a tool.
 | Attention | pytorch attention; `comfy_kitchen` HIP backend available (fp8/int8/w4a4/AWQ kernels) |
 | ComfyUI | 0.32.0, Desktop install |
 
-## What is unavailable, and what that rules out
+## Two flags that change everything — measured 2026-08-25
 
-**Triton, SageAttention, xformers and bitsandbytes do not work here.** Anything
-that needs them will fail, or — worse — silently fall back to something slower
-and different.
+Before the constraints, the two things that make this machine far more capable
+than its reputation. Both were verified here, not read.
 
-The consequences are specific and worth knowing before you plan work:
+### `TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL=1`
 
-- **`bitsandbytes` absent means no 8-bit optimizers.** Most LoRA training guides
-  reach for `AdamW8bit` by default. That option does not exist here, and the
-  fallback changes the memory budget the whole guide was written around.
-- **`xformers` absent means no memory-efficient attention** from that path.
-  PyTorch's own attention is what runs.
-- **`Triton` absent rules out a long tail of custom kernels**, including several
-  quantisation and speed-up node packs.
+PyTorch-ROCm ships **AOTriton** — ahead-of-time-compiled flash and
+memory-efficient attention kernels — but gates them behind an env var on
+`gfx1151` because they are marked experimental. Without the flag, attention
+falls back to a math path that materialises the whole attention matrix.
+
+Measured here, pure SDPA forward + backward, batch 4 × 8 heads × 2048 × 64, bf16:
+
+| | time (30 steps) | peak memory |
+|---|---|---|
+| unset | 2.164 s | 2.250 GB |
+| **`=1`** | **0.264 s** | **0.094 GB** |
+
+**8.2× faster and 24× less memory.** PyTorch prints the hint itself at every
+SDPA call, and the warning disappears once the flag is set.
+
+**"No Triton" does not mean "no flash attention"** — AOTriton is prebuilt
+inside the torch ROCm wheel. This is probably the single most valuable thing on
+this page: it applies to *rendering*, not just training, and the memory
+reduction directly addresses the OOM that killed the backend on 2026-08-25
+(see [failure-modes](failure-modes.md)).
+
+Do **not** set `PYTORCH_HIP_ALLOC_CONF=backend:malloc` — it crashes PyTorch on
+this stack.
+
+### `bitsandbytes` works — our own docs were wrong
+
+`HANDOFF.md` said bitsandbytes was unavailable. **It is not.** Verified here on
+2026-08-25 against the ComfyUI venv (torch 2.12.0+rocm7.14.0, Python 3.13.12,
+gfx1151):
+
+```
+bnb version : 0.50.1
+bnb backend : ROCm | lib: CudaBNBNativeLibrary
+state keys  : ['absmax1','absmax2','qmap1','qmap2','state1','state2','step']
+  state1: dtype=torch.uint8   state2: dtype=torch.uint8
+param moved : 1.049e-03  ->  OPTIMIZER IS STEPPING     finite: True
+```
+
+`AdamW8bit` steps with genuine `uint8` optimiser states. bitsandbytes 0.50.x
+ships one fat wheel per platform bundling `libbitsandbytes_rocm714.dll`, and
+picks the backend from `torch.version.hip` at import.
+
+**This unblocks every kohya-family trainer**, all of which reach for
+`AdamW8bit` by default — including VRGDG's own bundled LoRA trainer, which
+hard-codes it.
+
+A cosmetic `Could not detect ROCm GPU architecture: [WinError 2]` appears at
+import; it shells out to a `rocminfo` binary not on PATH and does not affect
+anything.
+
+## What genuinely is unavailable
+
+**Triton and SageAttention.** These remain absent, and rule out a long tail of
+custom kernels including several quantisation and speed-up node packs.
+`xformers` likewise — but with AOTriton enabled, PyTorch's own attention is no
+longer the slow path it was.
 
 ## The memory is unified, and that cuts both ways
 

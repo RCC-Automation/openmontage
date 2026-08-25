@@ -38,8 +38,11 @@ enforces this.
 
 Three constraints that will waste your time if you do not know them:
 
-1. **The host is AMD/ROCm, not CUDA.** Triton, SageAttention, xformers and
-   bitsandbytes are unavailable. Prefer fp8/GGUF/int8 weights.
+1. **The host is AMD/ROCm, not CUDA.** Triton, SageAttention and xformers are
+   unavailable. Prefer fp8/GGUF/int8 weights. **`bitsandbytes` DOES work**
+   (corrected 2026-08-25), and **set `TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL=1`**
+   — measured 8.2× faster, 24× less memory on attention. See
+   [`wiki/comfyui/this-machine.md`](wiki/comfyui/this-machine.md).
 2. **Models live outside the ComfyUI install**, in ComfyUI Desktop's shared tree.
    See `HANDOFF.md` for the paths.
 3. **Never run `git` through a Cowork device-bridge shell.** It cannot delete
