@@ -16,3 +16,4 @@ Format: `## [YYYY-MM-DD] <op> | <what> | <note>`
 ## [2026-08-25] compile | character/dataset-bootstrap.md | from survey:dataset-craft
 ## [2026-08-25] compile | character/techniques.md | hand-written synthesis; the synthesis agent failed twice
 ## [2026-08-25] correct | comfyui/this-machine.md | bitsandbytes DOES work; AOTriton flag measured 8.2x / 24x. HANDOFF was wrong.
+## [2026-08-25] compile | character/runbook-first-lora.md | the executable path, machine state verified against disk

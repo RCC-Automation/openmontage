@@ -54,6 +54,7 @@ Every page carries a `status`: **measured** (we ran it here, with numbers) ·
 | [character/lora-training.md](character/lora-training.md) | researched | **yes, it can be trained here** — trainers, dataset, hyperparameters |
 | [character/reference-conditioning.md](character/reference-conditioning.md) | researched | **the two mechanisms that fail oppositely** — and why ours collapsed |
 | [character/dataset-bootstrap.md](character/dataset-bootstrap.md) | researched | 20–40 consistent images from one render |
+| [character/runbook-first-lora.md](character/runbook-first-lora.md) | assumed | **the steps** — phase by phase, with a gate on each |
 | [character/video-identity.md](character/video-identity.md) | stub | what drifts across a clip and what stops it |
 
 ## Practice — how we work
