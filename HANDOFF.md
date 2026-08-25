@@ -342,6 +342,28 @@ route cannot be `load_session`'d, and the export's create-then-load path fails
 with "Builder session was not found". Interim: a human clicks New Project once
 and the export targets it via `project_folder`. See DECISIONS.md #32.
 
+**A running ComfyUI locks its own DLLs against pip.** Installing anything that
+touches `onnxruntime` while ComfyUI is up fails with
+`[WinError 5] Access is denied: ...onnxruntime_providers_shared.dll`. Worse,
+plain `pip install insightface` *wants* to pull `onnxruntime` on top of the
+`onnxruntime-gpu` already there. Install with `--no-deps` and add only what is
+genuinely missing.
+
+**The ComfyUI venv has `onnxruntime-gpu`, not plain `onnxruntime`** — and it
+advertises `TensorrtExecutionProvider` and `CUDAExecutionProvider` on a machine
+with no CUDA. Checking the *import* name tells you nothing, because both
+distributions import as `onnxruntime`. Check `pip freeze`.
+
+**ComfyUI never logs the AOTriton warning**, so its absence cannot be used to
+tell whether `TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL` reached the process. See
+DECISIONS #37; the flag showed no rendering benefit regardless.
+
+**A heredoc will turn `` into a literal backspace character.** It happened
+twice in one day — once producing a regex that could never match
+(`warmer`), once putting a backspace into a wiki path. If a Python
+string written through a heredoc contains a backslash escape, use `chr(92)` or
+write the file with a dedicated tool instead.
+
 **The session has no version field.** ~95 top-level keys, ~110 per segment. Never
 construct one. See DECISIONS.md #2.
 
@@ -362,16 +384,25 @@ work, and `WORKFLOW.md`'s status table before promising a step works.
 
 ## 7. Immediate next steps
 
-1. **Close the live round trip** — the render was running at clock-out. All
-   fourteen model files are downloaded and verified, the LTX models are selected
-   in `VRGDG_Model_Defaults`, and the branch is pushed and in sync with origin.
-2. **The round trip itself** — the test that proves the whole thing, and nothing
-   blocks it as of 2026-08-24:
-   plan a 2-scene film → `operation: "export"` → open in the Builder → render both
-   scenes by hand → `operation: "import"` → confirm the manifest and cut come back
-   with the same scene ids.
+**The round trip is closed** (2026-08-24) and the score path is built and proven
+(WP6). The current thread is **our own character LoRA**, and the executable path
+is `wiki/character/runbook-first-lora.md`.
 
----
+1. **Phase 2 — the anchor.** 40-60 close-ups on `juggernautXL_ragnarok` from the
+   description alone, clustered by ArcFace, most cohesive cluster's medoid
+   promoted. **Gate: mean pairwise >= 0.80.** ~30 min GPU.
+2. **Phase 3 — the dataset ladder.** ~36 images, three shot families, each
+   anchored on the previous family's promoted image, every save ArcFace-gated.
+   2-3 h GPU.
+3. **Phases 4-6** — caption, train, measure.
+
+**Phases 0 and 1 are done.** insightface and IP-Adapter FaceID PlusV2 are
+installed and verified running in the ComfyUI venv. Phase 0's gate **failed** -
+the AOTriton flag gave no rendering speedup - and that is recorded rather than
+papered over.
+
+**What needs Raul:** the casting decision is not formally closed. Phase 2
+assumes juggernautXL per DECISIONS #38.
 
 ## 8. Where the rest of the context lives
 

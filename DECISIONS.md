@@ -903,6 +903,94 @@ line will be misled. `WORKFLOW.md`'s status table is the antidote.
 
 ---
 
+## 36. A reaction the parser half-understands is a reaction it must ask about
+
+Round 2 of the first live casting session was steered by "I like 4, u, 7 and 8".
+The `u` was a typo. `interpret()` understood three picks, discarded the fourth
+fragment, and reported nothing — because it only populated its `unknown` list
+when it understood *nothing at all*.
+
+That is the wrong threshold. A reaction nobody understood fails loudly and
+costs a sentence. A reaction *mostly* understood **runs** — on three models when
+four were meant — and the loss is invisible until someone compares the sheet to
+what they typed.
+
+`_leftovers()` now reports fragments a partly-understood reaction left behind.
+Contractions are stripped before tokenising rather than filtered by length,
+because dropping every one-character token to kill the `s` in "that's" also
+kills the `u` that needed asking about.
+
+Found the same day: the parser could not read a bare number at all, so
+"I like 4, 6, 7 and 8" — how a person actually types it — selected **nothing**.
+That reads as being ignored rather than as an error, which is the worse failure
+in a conversation.
+
+**The rule:** the unknown list exists so that nothing said is silently dropped.
+Reporting it only on total incomprehension inverts its purpose.
+
+---
+
+## 37. Measure the thing you are claiming, not a proxy for it
+
+`TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL=1` was measured at **8.2× faster and
+24× less peak memory** on isolated `scaled_dot_product_attention`. That
+measurement is real and reproduces.
+
+The claim written from it — that it "applies to rendering, not just training"
+and that its memory saving "bears directly on the OOM that killed the backend" —
+was an extrapolation, and it was wrong. A real render measured **75 s against a
+76 s baseline**. A render is dominated by an 11.7 GB model load, convolutions,
+and a VAE that uses split attention regardless; the benchmark isolated the one
+part that was not the bottleneck.
+
+The check proposed alongside it also failed: ComfyUI has never emitted the
+`still experimental` warning in any log, including logs written before the flag
+existed, so its absence is not evidence of anything.
+
+**Contrast with `bitsandbytes` on the same day.** That correction was made by
+installing it and stepping an optimiser — and it holds. The difference between
+the two is not care or wording; it is that one measured the claim and the other
+measured a proxy and reasoned across the gap.
+
+DECISIONS #27 said guessed constants have been wrong every time they were
+checked. This extends it: **a measured constant can still support a wrong claim
+if the thing measured is not the thing asserted.** The flag stays set — training
+is where attention backward is a larger share, and that remains untested — but
+nothing counts on it for rendering.
+
+---
+
+## 38. Cast for the property that cannot be added
+
+The first live casting session produced a clean split. `juggernautXL_ragnarok`
+renders the brief at **0.87** and holds a face at **0.31** — three different
+women across three seeds. `zImageUltimateNSFW_v20` holds a face at **1.00** and
+renders the brief at **0.25** — the same woman every time, in generic armour
+with no clockwork anywhere.
+
+The instinct is to weigh these against each other. That is the wrong frame,
+because the two weaknesses are not equally fixable.
+
+**Identity is addable.** A LoRA puts it in the weights, a reference adapter puts
+it in the conditioning, a face repass puts it in post — and all three run on
+this machine.
+
+**"Renders brass" is not addable.** No tool teaches a model a look it does not
+have.
+
+So the model to cast is the one whose *look* is right, and the drift is the
+problem to solve. This inverts what the scores appear to say, and it is why the
+LoRA runbook targets juggernautXL rather than the model with the perfect
+identity score.
+
+**The corollary for the harness:** a ranking that weights `identity_stability`
+at 0.30 and `prompt_adherence` at 0.25 will keep recommending the wrong model
+for this decision. The axes are not wrong; using their weighted sum as a casting
+verdict is. The machine narrows, the human casts (#15) — and this is a case
+where the narrowing itself needs reading against what is fixable.
+
+---
+
 ## Open questions
 
 - **Where should beat timing win?** L3 has VRGDG measure the music and snap scene

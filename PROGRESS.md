@@ -372,6 +372,83 @@ recommendation.
 
 ---
 
+## WP2 — the casting loop, run live for the first time
+
+The instrument was built and calibrated weeks ago. What landed 2026-08-25 is the
+*conversation*, and running it for real found five bugs that fixture tests had not.
+
+| File | |
+|---|---|
+| `lib/casting_loop.py` | reaction → matrix. `interpret`, `next_matrix`, `next_brief`, `phone_sheet`, `drift_sheet` |
+| `scripts/casting_round.py` | the turn-taking; adopts a round it did not start |
+| `tests/contracts/test_casting_loop.py` | 41 tests |
+
+**Two rounds run live with Raul.**
+
+Round 1 — 12 models, one shared seed, 10.3 min. Round 2 — his four picks across
+three seeds, split in two after the first attempt killed the backend.
+
+| Model | face | look | brief |
+|---|---|---|---|
+| zImageUltimateNSFW_v20 | **1.00** | 1.00 | 0.25 |
+| darkBeast30 | 0.78 | 0.95 | 0.38 |
+| juggernautXL_ragnarok | 0.31 | 0.88 | **0.87** |
+| gonzalomoZpop_v40 | 0.28 | 0.91 | 0.47 |
+
+**The two properties you want live in different models.** The one that renders
+actual clockwork cannot hold a face; the one that holds a face perfectly renders
+generic. The research says take juggernautXL — its weakness is the addable one.
+
+**Bugs found by running it, all regression-tested:** bare numbers were not
+parsed as picks at all, so "I like 4, 6, 7 and 8" selected nothing; a
+half-understood reaction dropped the rest silently; contractions became
+questions; a word-boundary regex contained a literal backspace character; and
+the runner could not react to a round it had not started.
+
+**The backend died mid-round.** Four models × three seeds OOM'd, and the OOM
+*handler* aborted the process. See `wiki/comfyui/failure-modes.md`.
+
+---
+
+## The wiki
+
+`wiki/` — 29 pages on the Karpathy LLM-wiki pattern, lints clean.
+`scripts/wiki_lint.py` checks frontmatter, index membership, links and
+staleness. AGENTS.md, CLAUDE.md, clock-in and clock-out all route through it.
+
+**Two corrections to our own documentation came out of the research**, and the
+difference between them is the lesson:
+
+- **`bitsandbytes` works.** Verified by running it — ROCm backend, `AdamW8bit`
+  stepping with real uint8 state. HANDOFF said otherwise and was wrong. **Holds.**
+- **`TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL=1` does NOT speed up rendering.**
+  8.2× on isolated SDPA, but 75 s vs a 76 s baseline on a real render. I
+  extrapolated from a microbenchmark and the extrapolation broke. Kept set for
+  training, where it is still untested.
+
+---
+
+## Character consistency research
+
+A 10-family adversarially-verified survey, compiled into `wiki/character/`.
+Three runs were needed — connection errors and a session limit killed the
+synthesis twice, so `techniques.md` is hand-written and says so.
+
+**The finding that explains a number we could not account for:** there are two
+reference mechanisms and they fail oppositely. Latent/pixel reference (Klein,
+Kontext) attends to real image tokens and collapses when framing changes;
+embedding identity (FaceID, InstantID, PuLID) uses a pose-normalised ArcFace
+vector and should survive it — but holds only the face. **Our 0.932 → 0.301
+collapse was through the latent path.** The embedding path is untested here.
+
+**The structural answer: reference-THEN-LoRA.** Use reference conditioning to
+manufacture a consistent 20–40 image dataset, then train on it.
+
+`wiki/character/runbook-first-lora.md` is the executable path.
+**Phases 0 and 1 are done**; Phase 0's gate failed and is recorded as such.
+
+---
+
 ## Tests
 
 | Suite | |
@@ -382,14 +459,14 @@ recommendation.
 | `test_vrgdg_tools.py` | 45 passed |
 | `test_vrgdg_bridge.py` | 114 passed |
 | `test_render_clock.py` + `test_screen_test.py` | 94 passed |
-| full `tests/contracts` | **1227 passed, 8 skipped** — no failures |
+| full `tests/contracts` | **1302 passed, 8 skipped** — no failures |
 
 Artifacts are validated against the real `schemas/artifacts/*.schema.json`, not
 spot-checked — a manifest that does not validate fails much later, at
 checkpoint-write time, with a far worse error.
 
-Full `tests/contracts` now runs clean on this machine — **1227 passed, 8 skipped
-in 59 s**, re-verified 2026-08-24 after the WP6 work. The ~13 `google.genai` / mermaid-CLI failures
+Full `tests/contracts` now runs clean on this machine — **1302 passed, 8 skipped
+in 47 s**, re-verified 2026-08-25 after WP2 and the wiki. The ~13 `google.genai` / mermaid-CLI failures
 noted previously do not appear here; expect them again on a bare environment
 without those installed.
 
@@ -472,48 +549,30 @@ trusted until reconciled.
 
 ## Next
 
-1. **Close the live round trip.** The render is **in progress as of clock-out**
-   — Raul started both scenes of `VRGDG_Project_EndToEndTest` in the Builder.
-   When it finishes: `vrgdg_project_sync` with `operation: "import"`,
-   `project_dir: projects/vrgdg-round-trip`, `project_folder:
-   …\output\VRGDG_Project_EndToEndTest`. Pass = the same two scene ids
-   (`sc1`, `sc2`) come back, the clips are copied into the project, and the cut
-   boundaries match the timeline. This is the oldest unfinished item and the
-   test that proves the system.
-2. **Then WP2, the interactive casting skill** (`PLAN.md`). The instrument is
-   built and calibrated; what is missing is the conversation — turning "more
-   like #3, warmer, keep the collar" into the next round. Needs the GPU, so it
-   follows the render.
-3. **Then `PLAN.md`**, in its order: ~~WP1 `WORKFLOW.md`~~ **done 2026-08-24**
-   (plus `pipeline_defs/vrgdg-character-film.yaml`, now ten stages, nine
-   gated), WP2 the interactive casting skill, WP3 production skills and the
-   `vrgdg-character-film` pipeline, WP4 Backlot as the cockpit, WP5 the ComfyUI
-   Lab. L3's second half and L4 fold into WP3/WP5.
+1. **Runbook Phase 2 — choose the anchor.** Render 40–60 close-ups of the
+   clockwork heroine on `juggernautXL_ragnarok` from the description alone,
+   embed with `lib/face_identity.py`, cluster with k-means++, promote the most
+   cohesive cluster's **medoid**. **Gate: mean pairwise ArcFace ≥ 0.80** — if
+   nothing clusters that tightly the description is the problem, not the model.
+   ~30 min GPU. `wiki/character/runbook-first-lora.md`.
 
-### Open work on the casting layer, in priority order
+2. **Then Phase 3 — the dataset ladder.** ~36 images across three shot families,
+   each generated with IP-Adapter FaceID anchored to the previous family's
+   promoted image, every save gated on ArcFace ≥0.80. 2–3 h GPU.
 
-- **Every axis is now calibrated against output from this machine.**
-  `look_consistency` was the last one (DECISIONS #31): band 0.58 → 0.97, measured
-  from `casting/identity/` and `casting/negative/`. Four guessed bands checked,
-  four found wrong. What remains unmeasured is its *sensitivity*: both
-  populations differ in face and look together, so the axis has never been shown
-  a render that keeps the face and drops the collar — the failure it is named
-  for. That needs a population nothing on disk currently is.
-- **A reference per shot family.** DECISIONS #30 shows a reference is worth ~4×
-  a description on a matched shot but collapses when the framing changes. The
-  screen test has no concept of an approved reference yet; adding one would let
-  `full` measure identity across shot sizes, which is the real production
-  question (DECISIONS #29).
-- **ArcFace measures faces, nothing else.** A render can hold the face and lose
-  the pink hair and brass collar. `look_consistency` is the guard for that, which
-  is another reason to calibrate it rather than leave it inherited.
-- **The screen test cannot use a LoRA-trained character yet.** L6 remains the
-  only mechanism that holds identity independently of framing.
+3. **Then Phases 4–6** — caption, train on ComfyUI's native node
+   (LR 5e-4, not 1e-4: alpha is pinned at 1.0), and run the four-condition
+   measurement that no one in the LoRA literature has published.
 
----
+### Open, and needing Raul
 
-## Known gaps unrelated to the bridge
+- **The casting decision is not closed.** Round 2 gave a real trade-off and the
+  research points at juggernautXL, but he has not said so. Phase 2 assumes it.
+- **`QUESTIONS.md` Q1–Q6** — six open, each with a stated assumption.
+- **Six of ten research families** were surveyed on the third attempt; the
+  synthesis agent never completed. `wiki/character/techniques.md` is ours.
 
-`models/controlnet`, `ipadapter`, `animatediff_models` and `frame_interpolation`
-are empty while the corresponding node packs are installed. Not blocking; see
-`claude/system-profile.md`.
+### Still true from before
+
+- WP4 Backlot cockpit and WP5 the Lab are untouched.
+- The three loop skills are written; only casting has been run.
