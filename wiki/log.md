@@ -17,3 +17,6 @@ Format: `## [YYYY-MM-DD] <op> | <what> | <note>`
 ## [2026-08-25] compile | character/techniques.md | hand-written synthesis; the synthesis agent failed twice
 ## [2026-08-25] correct | comfyui/this-machine.md | bitsandbytes DOES work; AOTriton flag measured 8.2x / 24x. HANDOFF was wrong.
 ## [2026-08-25] compile | character/runbook-first-lora.md | the executable path, machine state verified against disk
+## [2026-08-25] execute | runbook phase 0 | AOTriton flag set at User scope; needs a ComfyUI restart
+## [2026-08-25] execute | runbook phase 1 | insightface + FaceID PlusV2 installed and verified running on CPU provider
+## [2026-08-25] correct | runbook phase 1 | ComfyUI venv has onnxruntime-GPU not plain onnxruntime; install insightface with --no-deps

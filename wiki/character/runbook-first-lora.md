@@ -15,17 +15,39 @@ we can measure. **Nothing here has been executed yet** — the status is
 reads the brief at 0.87 while drifting at 0.31. We fix the drift; we cannot fix
 another model's inability to render brass.
 
-**Machine state verified 2026-08-25:** `comfyui_ipadapter_plus` and
-`comfyui-florence2` are installed. `insightface` is **absent from the ComfyUI
-venv** (it lives in the repo venv). `onnxruntime` is present and
-`onnxruntime-gpu` is absent — which is the clean state. `models/ipadapter`,
-`models/insightface` and `models/instantid` **do not exist**.
-`models/photomaker` exists and is empty. `clip_vision/` holds
-`clip_vision_h.safetensors`.
+**Phases 0 and 1 are DONE as of 2026-08-25.** What follows records what
+actually happened, including two corrections to the plan.
+
+| | |
+|---|---|
+| `TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL=1` | set at **User** scope. **Needs a ComfyUI restart to take effect** |
+| `insightface` 1.0.1 | installed into the ComfyUI venv and **verified running**, not just importing |
+| `buffalo_l` | copied to `models\insightface\models\buffalo_l\` |
+| FaceID PlusV2 SDXL | 1418.6 MB adapter + 354.6 MB LoRA (1680 tensors, header checked) |
+| CLIP vision | copied to `CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors` |
+| venv snapshot | 417 packages recorded before any change, for rollback |
+
+**Correction 1 — the ONNX state was the opposite of what was assumed.** The
+ComfyUI venv has **`onnxruntime-gpu` 1.28.0 and not plain `onnxruntime`**. The
+earlier reading checked the *import* name, which is `onnxruntime` for both
+distributions. It advertises `TensorrtExecutionProvider` and
+`CUDAExecutionProvider` **on a machine with no CUDA**; the repo venv, which runs
+our ArcFace harness happily, offers only `CPUExecutionProvider`.
+
+**Correction 2 — do not let pip resolve insightface's dependencies.** A plain
+`pip install insightface` pulls `onnxruntime` (CPU) *on top of* `onnxruntime-gpu`,
+and the install dies with `[WinError 5] Access is denied` on
+`onnxruntime_providers_shared.dll` because **a running ComfyUI holds that DLL
+open**. Install with `--no-deps` and add only what is genuinely missing — here
+that was `onnx`, `prettytable` and `ml_dtypes`. Nothing touched ONNX, so nothing
+that ComfyUI already depends on moved.
+
+Verified afterwards: `FaceAnalysis` prepares on `CPUExecutionProvider`, detects a
+face in a real casting render, and returns a unit-norm 512-d embedding.
 
 ---
 
-## Phase 0 — turn the machine on properly (10 minutes)
+## Phase 0 — turn the machine on properly (10 minutes) — DONE
 
 **Everything downstream is 8× faster and needs 24× less memory after this.**
 
@@ -43,7 +65,7 @@ building on it.
 
 ---
 
-## Phase 1 — install the reference adapter (1 hour, ~2.5 GB)
+## Phase 1 — install the reference adapter (1 hour, ~2.5 GB) — DONE
 
 We need **embedding-space** identity, because
 [the latent path is the one that collapsed on us](reference-conditioning.md).
@@ -53,8 +75,14 @@ IP-Adapter FaceID PlusV2 is SDXL, which matches the target model.
    ```
    …\ComfyUI-Installs\ComfyUI\ComfyUI\.venv\Scripts\python.exe -m pip install insightface==1.0.1
    ```
-   Leave `onnxruntime` as-is. Do **not** add `onnxruntime-gpu`; having both
-   causes a cublasLt error, and CPU is what runs here anyway (~26 ms/image).
+   **Use `--no-deps`.** Letting pip resolve dependencies pulls plain
+   `onnxruntime` on top of the `onnxruntime-gpu` already installed, and the
+   install dies with `[WinError 5] Access is denied` on
+   `onnxruntime_providers_shared.dll` — a running ComfyUI holds that DLL open.
+   Then add only what is actually missing: `onnx`, `prettytable`, `ml_dtypes`,
+   each with `--no-deps`. Leave ONNX alone; its `CPUExecutionProvider` is what
+   runs here anyway (~26–42 ms/image), and touching it risks the one venv that
+   works end to end.
 
 2. **Create the folders** under `ComfyUI-Shared\models\`: `ipadapter\`,
    `insightface\models\`.
