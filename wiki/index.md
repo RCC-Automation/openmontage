@@ -50,9 +50,10 @@ Every page carries a `status`: **measured** (we ran it here, with numbers) ·
 | [character/the-problem.md](character/the-problem.md) | measured | why this is the hard part, stated precisely |
 | [character/what-we-measured.md](character/what-we-measured.md) | measured | seed vs description, reference per shot family, the numbers |
 | [character/measuring-identity.md](character/measuring-identity.md) | measured | ArcFace and CLIP, what each sees, calibrated bands |
-| [character/techniques.md](character/techniques.md) | stub | the ranked survey — from the research workflow |
-| [character/lora-training.md](character/lora-training.md) | stub | can we train one here, and how |
-| [character/reference-conditioning.md](character/reference-conditioning.md) | stub | holding identity without training |
+| [character/techniques.md](character/techniques.md) | researched | the ranked survey — what to do, in order |
+| [character/lora-training.md](character/lora-training.md) | researched | **yes, it can be trained here** — trainers, dataset, hyperparameters |
+| [character/reference-conditioning.md](character/reference-conditioning.md) | researched | **the two mechanisms that fail oppositely** — and why ours collapsed |
+| [character/dataset-bootstrap.md](character/dataset-bootstrap.md) | researched | 20–40 consistent images from one render |
 | [character/video-identity.md](character/video-identity.md) | stub | what drifts across a clip and what stops it |
 
 ## Practice — how we work
