@@ -18,6 +18,53 @@ or names the change.
 
 <!-- Add entries at the top. Newest first. -->
 
+### Q7. Does LoRA training run on this ROCm machine at all?
+
+**Status:** answered — **yes.** 2026-08-26, `scripts/train_lora_smoke.py`:
+200 steps, rank 16, LR 5e-4, bf16, AdamW, 10 images at 832×1216, native
+`TrainLoraNode` against `juggernautXL_ragnarok` — **498.7 s (2.49 s/step)**,
+a 102.5 MB `.safetensors` that `LoraLoader` accepts, and a same-seed gate
+render at **0.428** ArcFace to the anchor against **0.219** without it.
+Kept here until WP7 7.1 lands; the measurement is on
+`wiki/character/lora-training.md`.
+**Raised:** 2026-08-26, planning WP7 (three engines, three LoRAs)
+**Blocks:** every LoRA in WP7, and therefore the whole point of building a
+character dataset. Nothing in the plan is worth a GPU-hour until this is known.
+
+**The situation.** A full day went into dataset construction - anchor sweeps,
+FaceID calibration, a rejection-sampling variant, a ladder - and not one
+LoRA has ever been trained here. The wiki page saying training works
+(`character/lora-training.md`) is `researched`, not `measured`. This is an
+AMD gfx1151 box with no Triton, no xformers, no SageAttention; every training
+recipe in circulation assumes CUDA.
+
+What is known: `TrainLoraNode` and `LoraSave` are present; `bitsandbytes`
+0.50.1 loads with a ROCm backend and `AdamW8bit` steps with real uint8 state
+(HANDOFF section 2, verified 2026-08-25); `juggernautXL_ragnarok` is on disk in
+trainable precision. So an SDXL LoRA *can be attempted* with no downloads.
+Whether it completes, how long a step takes, and whether the saved file loads
+back into `LoraLoader` are all unmeasured.
+
+**What I assumed to keep going.** That it works. WP7 is written on that
+assumption, with 7.0 - a throwaway LoRA on ~10 images already on disk - as
+the first step precisely so the assumption is checked before anything else.
+
+**What changes if the answer is different.** WP7 collapses to its 7.1 and 7.2
+halves: the three workflows still exist and are still agent-callable, but
+identity comes from reference conditioning at generation time (FaceID for
+SDXL, multi-reference for Klein, prompt only for Z-Image) instead of from a
+LoRA. That path works today and is measured in
+`wiki/character/faceid-on-this-machine.md`; its cost is the plastic skin at
+the strengths that hold identity, and no adapter at all for Z-Image.
+
+**Recommendation:** run 7.0 next session, first thing, with
+`TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL=1` set in the training process's own
+environment (it is untested for training and this is where it might matter).
+Gate: the file loads, and a same-seed render with the LoRA measures closer to
+the anchor than one without.
+
+---
+
 ### Q6. Should a casting round free VRAM between models?
 
 **Status:** open

@@ -214,6 +214,8 @@ Check the file, not the report: compare its size against the server's
 — `curl -C -` asks for bytes past the end, the server answers 416, curl exits 33,
 and the script rewrites the marker instead of re-downloading.
 
+**A download in progress already appears in ComfyUI's loader dropdowns.** `UNETLoader.unet_name` listed `z_image_base_bf16.safetensors` at 64% downloaded, identically to the finished Klein Base beside it. The dropdown means "a file with this name exists", nothing more. Trust the byte count against the server's `Content-Length` (the download scripts print COMPLETE / INCOMPLETE), never the listing - and for a fresh file, read the safetensors header: Klein Base was confirmed trainable by 149 tensors all BF16 and no `_quantization_metadata`, which is how the fp8 Klein was ruled out.
+
 **A checkpoint that looks broken may just be mis-driven.** Distilled checkpoints
 (names carrying DMD, LCM, Turbo, Lightning) are trained for CFG ~1 and ~10 steps.
 Run one at CFG 4.5 for 35 steps and it returns saturated, posterised garbage that
@@ -363,6 +365,60 @@ twice in one day — once producing a regex that could never match
 (`warmer`), once putting a backspace into a wiki path. If a Python
 string written through a heredoc contains a backslash escape, use `chr(92)` or
 write the file with a dedicated tool instead.
+
+**The IP-Adapter FaceID LoRA must sit in `models/loras/`, not `models/ipadapter/`.**
+`IPAdapterUnifiedLoaderFaceID` finds the adapter itself by pattern under
+`ipadapter/`, but resolves its companion LoRA through
+`folder_paths.get_filename_list("loras")`. Runbook Phase 1 put both files in
+`ipadapter/`, so every FaceID render died with `LoRA model not found.` - a
+message naming neither the file nor the folder it searched. Copy
+`ip-adapter-faceid-plusv2_sdxl_lora.safetensors` into `loras/` as well. Same
+shape as the MSR LoRA gap above: a model that exists, but not where the node
+looks.
+
+**A cosine-only sweep cannot see a framing override.** The first FaceID
+calibration reported that wide shots held identity as well as close-ups. True,
+and meaningless: at every weight tested the wide renders came back as portraits,
+because face conditioning applied from step zero overrides the prompt's shot
+size (measured 2.94x the face area of the same prompt with no reference). Score
+`face_fraction` beside identity, against a no-reference render as control, and
+set `start_at` per shot family. See `wiki/character/faceid-on-this-machine.md`.
+
+**Maximising an identity score makes skin plastic.** Tuning `lora_strength` and
+`weight_faceidv2` to maximise ArcFace cosine produces glossy, idealised,
+uniform-toned faces - the cosine climbs *while* it happens, because a face pushed
+toward an embedding converges on an average of that identity. Three separate
+attempts to measure the effect all scored the plastic renders *higher* than the
+photographic ones, because they measured detail and FaceID renders are crisper,
+not softer. The axis is real and currently unmeasurable here:
+`lib/render_realism.py` carries `CALIBRATED = False` and the record of what
+failed. Judge it by eye until something separates the populations.
+
+**ComfyUI Desktop's working `input/` is in the Shared tree, not the install.**
+`ComfyUI-Shared\input` is what `folder_paths.get_input_directory()` returns
+here; `ComfyUI-Installs\ComfyUI\ComfyUI\input` also exists, stale, holding a
+placeholder file. The native trainer's dataset loader
+(`LoadImageTextDataSetFromFolder`) offers *subfolders of the input directory*
+in a dropdown, so a dataset staged under the install path never appears and
+the graph fails validation with "value not in list". Stage under Shared, then
+confirm the folder name is in `object_info` before submitting. Same tree holds
+`output/` and `models/`.
+
+**A LoRA name must be exactly as ComfyUI lists it - backslash on Windows.**
+`LoraLoader.lora_name` is an enum of relative paths under `models/loras/`, and
+on this machine a file in a subfolder is listed as `character\name.safetensors`.
+Passing `character/name.safetensors` is "value not in list" even though the
+file is right there. Read the enum from `object_info/LoraLoader` and match on
+the normalised tail rather than composing the string. The first training smoke
+trained successfully and then lost its gate render to exactly this.
+
+**A festival or street prompt puts a bystander in most frames.** 33 of 48
+close-ups for the Burning Man character held more than one detectable face,
+and a sweep that discards multi-face renders threw away two thirds of the
+casting pool. The subject is still the largest face; embed it and flag the
+bystander (`anchor_select.py --largest-face`). For the *reference* image, prefer
+a clean single-face render or crop to head-and-shoulders - Klein's reference
+reads the whole image and a bystander in it gets conditioned in.
 
 **The session has no version field.** ~95 top-level keys, ~110 per segment. Never
 construct one. See DECISIONS.md #2.

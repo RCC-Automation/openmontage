@@ -22,3 +22,10 @@ Format: `## [YYYY-MM-DD] <op> | <what> | <note>`
 ## [2026-08-25] correct | runbook phase 1 | ComfyUI venv has onnxruntime-GPU not plain onnxruntime; install insightface with --no-deps
 ## [2026-08-25] correct | comfyui/this-machine.md | AOTriton gate FAILED on a real render: 75s vs 76s baseline. The 8.2x was isolated SDPA; the extrapolation to rendering was wrong.
 ## [2026-08-25] lint    | 29 pages clean | session close
+## [2026-08-26] compile | practice/seeds | seed distance/magnitude/pattern, saturation, 96 renders
+## [2026-08-26] compile | character/faceid-on-this-machine | weight+lora sweep, framing override, realism cost
+## [2026-08-26] measure | character/lora-training | first LoRA trained on ROCm: 200 steps 499 s, gate 0.219 -> 0.428; status researched -> measured
+## [2026-08-26] compile | comfyui/models | stub -> measured: 34 files by family, drivable/trainable split, both new Base weights byte-verified
+## [2026-08-26] compile | comfyui/graph-sources | stub -> measured: the three sources as used, the reference-drop guard, timings
+## [2026-08-26] correct | comfyui/graph-sources | Klein is 55-77 s at 832x1216 with a reference, not ~5 s; size now quoted with the number
+## [2026-08-26] measure | character/what-we-measured | Klein face-crop -> full body 0.62-0.78 (n=16); face-describing brief 20-37 siblings vs 6-19

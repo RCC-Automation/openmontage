@@ -1,7 +1,7 @@
 ---
 title: What we measured about character identity
 status: measured
-updated: 2026-08-25
+updated: 2026-08-26
 sources: [../../DECISIONS.md, ../../PROGRESS.md]
 ---
 
@@ -58,6 +58,42 @@ single image is a cast record that will fail the moment the camera pulls back.
 (`DECISIONS.md` #30.)
 
 ---
+
+## A face crop holds across a full-body framing on Klein — 2026-08-26
+
+The collapse above (0.932 → 0.301 medium, 0.493 wide) was a *whole render*
+used as the reference. Giving Klein's multi-reference route a **head-and-
+shoulders crop of the face** and asking for a full-body shot behaved very
+differently, on the Burning Man character:
+
+| framing asked | n | ArcFace to the face crop | frame the face occupied |
+|---|---|---|---|
+| full body, front | 8 | **0.62 – 0.78**, mean 0.71 | 1.7 – 3.2 % |
+| full body, three-quarter | 8 | 0.48 – 0.70, mean 0.62 | 2.9 – 4.2 % |
+
+Every one of the sixteen was recognisably her by eye. So the earlier wide-shot
+number was at least partly the *reference's* framing, not only the target's:
+a close-up render carries a background and a torso the model tries to keep,
+where a face crop carries the face. This is why the workflow's three masters
+are a face crop plus two full-body views, and why `scripts/masters.py` crops.
+
+Two things to know when reading these numbers. **Scores are against the
+largest face**: a festival prompt put bystanders in 14 of the 16 frames, and a
+scorer that demands exactly one face reports "no face" for all of them
+(`HANDOFF.md`). And Klein at 832×1216 with a reference is **55–77 s per
+render**, not the ~5 s of the Builder's 1024×576 default.
+
+## The description carries the identity — confirmed from the other side
+
+The clockwork heroine's brief names a costume ("brass filigree collar, amber
+workshop light") and her 48-seed sweep found 6–19 siblings per render at
+cosine ≥ 0.55, nearest neighbours ~0.60. The Burning Man brief names a **face**
+("plaits, brown eyes, blonde, cute face, French") and the same sweep on the
+same model found **20–37 siblings**, nearest 0.65–0.69, with two clusters
+instead of six. Same seeds, same checkpoint; only what the prompt described
+changed. `DECISIONS.md` #29 measured this by holding the seed and moving the
+prompt; this is the same finding from a prompt that happened to describe the
+right thing.
 
 ## Models differ enormously at holding a face, and single frames cannot tell you
 

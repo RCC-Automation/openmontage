@@ -555,6 +555,120 @@ karaoke burn.
 
 ---
 
+### WP7 — one character, three engines: the workflows an agent can call
+
+**What.** Three production workflows — Juggernaut XL, FLUX.2 Klein, Z-Image —
+each driving the *same* character from the *same* references and prompts, each
+with its own architecture-matched LoRA, each independently triggerable by an
+agent as a skill. Plus the dataset builder that feeds all three LoRAs.
+
+The recommendation this comes from (2026-08-26, Raul's notes) is right on
+every architectural point, and the one that decides everything: **a LoRA
+belongs to one model family.** A FLUX LoRA cannot load into Juggernaut, a
+Juggernaut LoRA cannot load into Z-Image. One curated dataset, three LoRAs.
+
+**The starting position, measured against this machine.** The plan is only as
+good as what is installed, and most of the recommendation assumes CUDA.
+
+| The recommendation needs | Here |
+|---|---|
+| GPU / VRAM | **AMD Radeon 8060S** (gfx1151), ~90 GB unified, ROCm 7.14. No Triton, no xformers, no SageAttention |
+| Juggernaut XL | `juggernautXL_ragnarok.safetensors`, 7.11 GB, header-verified SDXL ✅ |
+| FLUX.2 Klein 4B or 9B | **4B fp8 only** (`flux-2-klein-4b-fp8`). Inference-only: 80 tensors in `float8_e4m3fn`. No 9B. **Not trainable** |
+| Z-Image Base or Turbo | **neither.** Three community fine-tunes, all INT8 or GGUF. **Not trainable** |
+| ComfyUI install | **Desktop**, models in the `ComfyUI-Shared` tree (HANDOFF §3) |
+| SDXL Base 1.0 | absent (refiner only) |
+| SDXL ControlNet (OpenPose, Depth) | absent — `models/controlnet/` is empty |
+| InstantID | absent |
+| Z-Image Fun Union ControlNet | node `ZImageFunControlnet` present; its `model_patch` file absent |
+| Kohya_ss / AI Toolkit | neither installed |
+| Native trainer | `TrainLoraNode` + `LoraSave` present; `bitsandbytes` 0.50.1 + `AdamW8bit` **verified working** (HANDOFF §2) |
+| LoRA loaders | `LoraLoader`, `LoraLoaderModelOnly` present |
+| Klein multi-reference | `ReferenceLatent`, `FluxKontextMultiReferenceLatentMethod` present; VRGDG `flux_klein` route drives it, **measured 0.932** on matched framing (#30) |
+
+So: **exactly one LoRA can be trained here today** — SDXL, against Juggernaut,
+with zero downloads. The other two are blocked on base weights. And whether
+*any* LoRA trains on ROCm is unverified. That ordering is the plan.
+
+**Principle: three engines behind one cast record.** The "shared interface"
+the recommendation asks for — trigger word, LoRA, strength, face reference,
+full-body reference, prompt, seed, size — is what `cast_record` already is:
+`character`, `brief`, `candidate.model`, `candidate.loras[]`, `engine`, `seed`,
+`references{close_up, medium, wide}`, `chosen_by`. It gains **one field**,
+`trigger` (the invented token). Every workflow reads the record; the agent never
+assembles a payload by hand. Same prompt in all three engines is then a
+one-line comparison, which is the point.
+
+**How each workflow reaches ComfyUI.** The three graph sources already exist
+(`.agents/skills/comfyui/SKILL.md`); each workflow maps onto one, and two of the
+three need **no new graph at all**.
+
+| | Graph source | Identity mechanism | Exists today |
+|---|---|---|---|
+| **00 dataset builder** | `vrgdg_build` kind `flux_klein`, `images=[face_ref, body_ref]` per shot family | Klein multi-reference (0.932 matched) → ArcFace filter → **human curation** | route ✅, filter ✅ (`lib/character_dataset`), chooser ✅ (`scripts/anchor_chooser.py`). Builder script: rewrite `build_dataset.py` from FaceID to Klein |
+| **01 Juggernaut XL** | **custom**: `tools/_comfyui/workflows/character-sdxl.json` + profile | SDXL LoRA + IP-Adapter FaceID (installed) + ControlNet (absent) | graph: `tools/_comfyui/faceid.py` builds it; needs the `LoraLoader` stage and a profile. **Profile binding names are unrestricted**, so `lora_name`, `face_reference` (an absolute path into `VHS_LoadImagePath.image` — no upload needed), `faceid_start_at` bind with **zero tool changes** |
+| **02 FLUX.2 Klein** | `vrgdg_build` kind `flux_klein` | Klein LoRA (blocked) + multi-reference (works now) | route ✅ verified live. LoRA via the payload keys `screen_test` already sends (`use_custom_loras`, `lora_1`, `strength_1`) |
+| **03 Z-Image** | `vrgdg_build` kind `zimage` | Z-Image LoRA (blocked) + Fun ControlNet (model absent) + prompt | route ✅ verified live (darkBeast, 162 s). **Weakest identity until a LoRA exists** — no adapter for this family |
+
+**The skill.** One skill, `skills/production/character-shot.md`, on the WP1
+contract, with the engine as the first move: *"render her on Klein"*, *"same
+shot on Juggernaut"*, or no engine named → `cast_record.engine`. That is the
+three independent possibilities the recommendation asks for, without three
+copies of the same text — and it is what makes cross-engine comparison free.
+Registered in `pipeline_defs/vrgdg-character-film.yaml` as a `preferred_tool`
+of the `render` stage; Backlot action `shot.render` with an engine picker
+(WP4, later).
+
+```
+triggers   "render her on <engine>", "a shot of <character> <doing>", shot.render
+needs      cast_record (approved), a shot prompt; optional pose image
+does       1 read engine  2 resolve graph source  3 bind the record  4 render
+           5 measure: ArcFace vs cast_record.references[<family>], face_fraction
+           6 present the still with both numbers
+produces   the still + provenance (graph hash, model stack, LoRA + strengths)
+presents   the image, cos-to-anchor, framing, and which engine ran
+send-back  "closer" → adapter/LoRA strength up one notch; "more real" → down
+```
+
+**Training, honestly.** The native `TrainLoraNode` defaults to LR 5e-4 with
+alpha pinned at 1.0 (`runbook-first-lora.md`); Kohya's 1e-4 assumes alpha 32.
+**Use the pair that matches the trainer** or the effective rate is off by 5×.
+AI Toolkit and Kohya are the better tools *on CUDA*; here the native node is
+the only one with a verified optimizer. Z-Image Turbo needs a special training
+adapter; Z-Image Base needs a download. Both are 7.5.
+
+**Order and gates.** Cheapest decisive test first. Nothing below 7.5 downloads
+anything.
+
+| | Step | GPU | Gate |
+|---|---|---|---|
+| **7.0** | **Does LoRA training run on ROCm at all?** Throwaway SDXL LoRA on ~10 images already on disk, native node, against Juggernaut | ~1 h | a `.safetensors` that `LoraLoader` accepts **and** moves ArcFace-to-anchor vs a same-seed no-LoRA render. Fails → stop; use FaceID at generation time (works today, `faceid-on-this-machine.md`) |
+| 7.1 | Workflow 01: graph + profile, `lora_name` bound, exposed through `comfyui_image` | smoke only | renders with an empty LoRA slot; provenance carries the stack |
+| 7.2 | Workflow 00: rewrite the builder on Klein multi-reference, three anchors (face / body front / body three-quarter), ArcFace filter, chooser sheet | ~1 h | **24 images Raul approved**, balanced per the quota table, every one photographic *by his eye* |
+| 7.3 | Train the SDXL LoRA on the curated set; test on **10 held-out prompts** | 1–2 h | identity vs anchor **up** against no-LoRA, **and skin still photographic on the sheet.** Both, or it does not ship |
+| 7.4 | `character-shot.md` + manifest registration; run all three engines on one prompt | minutes | one comparison sheet, three engines, one record |
+| 7.5 | Klein and Z-Image LoRAs | 2 × 1–2 h | blocked on `FLUX.2-Klein-4B-Base` bf16 and Z-Image Base downloads; same dataset, same captions |
+| 7.6 | ControlNet, InstantID | — | optional; ~7 GB of downloads; **add one mechanism at a time** so a failure has one cause |
+
+**What 7.0 protects against.** Every hour lost on 2026-08-26 came from building
+on an assumption that was never checked against this machine — a band from a
+different mechanism, a yield from different prompts, a ladder from a different
+reference type. Training on ROCm is the largest unchecked assumption in the
+entire plan, and it sits under all three workflows. One hour settles it.
+
+**Risks.**
+- ROCm training fails or is impractically slow — 7.0 answers it.
+- The LoRA reproduces the dataset's skin. Untested by anyone; 7.3's gate is the
+  test. This is why the dataset engine is Klein rather than FaceID: at the
+  strength that holds identity FaceID idealises skin (`faceid-on-this-machine.md`).
+- Z-Image identity with no adapter and no LoRA is prompt-only, which we measured
+  at 0.31–0.47. Workflow 03 is real but weak until 7.5.
+- Five stacked identity mechanisms cannot be debugged. 7.6 adds them one at a
+  time with a measurement between each.
+
+**Done when.** One shot prompt, three engines, one cast record, one sheet —
+and Raul says which one is her.
+
 ## 5. Order, dependencies, and what each needs
 
 ```
@@ -567,6 +681,8 @@ karaoke burn.
    └─► WP5 lab ──────────────────► needs GPU; independent of WP3/WP4
    └─► WP6 score ────────────────► schema + bridge now; the loop needs GPU
          └─► feeds WP3 (a Score gate) and WP5 (audio graphs in the Lab)
+   └─► WP7 three engines ────────► 7.0 first (1 h, no downloads); one LoRA trainable today
+         └─► needs WP2's cast_record; feeds the render stage of WP3
 ```
 
 | WP | Prerequisite | GPU | Rough size |
@@ -579,6 +695,7 @@ karaoke burn.
 | WP4 | WP3 | no | two sessions |
 | WP5 | WP1 | yes | two sessions |
 | WP6 | WP1 (renumber done) | yes for the score loop, no for schema/bridge | two sessions |
+| WP7 | WP2 (a cast record); **7.0 before anything else** | yes: 7.0 ~1 h, 7.2–7.3 ~3 h, 7.5 blocked on downloads | three sessions; 7.5–7.6 open-ended |
 
 **Now, during the render:** WP1 in full, and the *design* of WP2 (the
 reaction vocabulary, the session file, the round planner) so that the moment

@@ -148,6 +148,21 @@ def lint(fix: bool = False, stale_days: int | None = None) -> Report:
             else:
                 r.errors.append(f"{rel}: not listed in index.md")
 
+        # -- the index must not overstate a page's status ------------------
+        # A stub listed as "measured" passes every other check here and lies
+        # to whoever scans the catalog. Eleven rows did, on 2026-08-26.
+        if page.name not in META_PAGES and rel in index_text:
+            row_prefix = "| [" + rel + "](" + rel + ") | "
+            for line in index_text.splitlines():
+                if line.startswith(row_prefix):
+                    shown = line[len(row_prefix):].split(" | ", 1)[0].strip()
+                    page_status = fm.get("status", "")
+                    if shown and page_status and shown != page_status:
+                        r.errors.append(
+                            f"{rel}: index says {shown!r} but the page says {page_status!r}"
+                        )
+                    break
+
     # -- the index must not point at pages that do not exist -------------
     for target in _LINK.findall(index_text):
         if target.startswith(("http", "mailto:")):

@@ -1,7 +1,7 @@
 ---
 title: Training a character LoRA on this machine
-status: researched
-updated: 2026-08-25
+status: measured
+updated: 2026-08-26
 sources: [../comfyui/this-machine.md, https://github.com/kohya-ss/sd-scripts, https://github.com/kohya-ss/musubi-tuner, https://github.com/ROCm/ROCm/issues/6034]
 ---
 
@@ -15,6 +15,39 @@ the first training run should be treated as an experiment measured with our own
 [ArcFace harness](measuring-identity.md), not as a known quantity.
 
 ---
+
+## Measured here, 2026-08-26 — it trains
+
+The first LoRA ever trained on this machine, as a throwaway to answer
+`QUESTIONS.md` Q7 before any dataset work was worth its GPU-hour:
+
+| | |
+|---|---|
+| trainer | ComfyUI native `TrainLoraNode` → `SaveLoRA`, graph in `tools/_comfyui/lora_train.py` |
+| base | `juggernautXL_ragnarok.safetensors` (SDXL) |
+| data | 10 close-ups at 832×1216, one caption each: `WRENX woman, close-up portrait, head and shoulders` |
+| settings | 200 steps · rank 16 · LR **5e-4** · AdamW · bf16 · gradient checkpointing · batch 1 |
+| time | **498.7 s — 2.49 s/step** (first step 2.61 s) |
+| output | 102.5 MB, loads through `LoraLoader` |
+| memory | torch held ~25 GB during training on the 94 GB unified pool |
+| gate | same seed, same prompt: **0.428** ArcFace to the anchor with the LoRA, **0.219** without |
+
+So the answer to "can a LoRA be trained on ROCm here" is yes, at about
+**8 minutes per 200 steps** for SDXL — a 1,500-step run is roughly an hour.
+The AOTriton flag was set at User scope; whether it reached the ComfyUI
+process is still unknowable from the log (`DECISIONS.md` #37), so this
+number is with-or-without it. Nothing else in the plan depends on which.
+
+**What it does not say.** 0.43 after 200 steps on ten images is a weak LoRA
+moving a face the right way, not a character. Whether a real dataset produces
+identity *and* keeps the base model's skin is WP7 step 7.3, and nobody has
+measured it.
+
+Three traps found on the way, all in `HANDOFF.md`: the dataset must be staged
+under `ComfyUI-Shared\input` (not the install's `input/`), the LoRA name must
+be passed exactly as ComfyUI lists it (backslash-joined on Windows), and the
+optimizer list is `AdamW` / `Adam` / `SGD` / `RMSprop` — no 8-bit option in
+this node, which is fine with 94 GB.
 
 ## Start here: ComfyUI's own trainer
 
