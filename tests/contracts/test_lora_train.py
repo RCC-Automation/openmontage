@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from tools._comfyui.lora_train import (
     DEFAULT_LEARNING_RATE,
+    DEFAULT_RANK,
     build_sdxl_lora_render_graph,
     build_sdxl_lora_train_graph,
 )
@@ -38,11 +39,23 @@ class TestTrainGraph:
         # SaveLoRA and LoraModelLoader accept.
         assert _train()["5"]["class_type"] == "SaveLoRA"
 
-    def test_learning_rate_default_is_the_native_nodes_not_kohyas(self):
-        # Alpha is pinned at 1.0 in the native node, so Kohya's 1e-4 would train
-        # at a fraction of the intended rate.
-        assert DEFAULT_LEARNING_RATE == 5e-4
-        assert _train()["4"]["inputs"]["learning_rate"] == 5e-4
+    def test_rank_is_low_because_it_sets_the_scale(self):
+        # nodes_train.py hardcodes alpha=1.0 and lora.py applies
+        # scale = alpha / rank, so rank IS the strength dial. Standard practice
+        # (alpha = rank/2) is scale 0.5; rank 32 here would be 0.031, a 16x
+        # weaker LoRA. The first run did that and barely learned the face while
+        # degrading the image.
+        assert DEFAULT_RANK <= 8, "rank above 8 means scale below 0.125"
+        scale = 1.0 / DEFAULT_RANK
+        assert 0.125 <= scale <= 1.0
+        assert _train()["4"]["inputs"]["rank"] == DEFAULT_RANK
+
+    def test_learning_rate_pairs_with_that_scale(self):
+        # 2e-4 is 2x kohya's 1e-4, closing the remaining 2x gap between rank 4's
+        # scale (0.25) and the standard 0.5. A rate chosen for a different rank
+        # is a rate for a different LoRA strength.
+        assert DEFAULT_LEARNING_RATE == 2e-4
+        assert _train()["4"]["inputs"]["learning_rate"] == DEFAULT_LEARNING_RATE
 
     def test_every_required_trainer_input_is_present(self):
         required = {

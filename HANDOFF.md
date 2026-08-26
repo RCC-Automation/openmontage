@@ -218,6 +218,8 @@ and the script rewrites the marker instead of re-downloading.
 
 **`SaveLoRA`'s prefix is relative to the OUTPUT directory, not the models tree.** A prefix of `loras/character/x` writes to `ComfyUI-Shared\output\loras\character\`, which is *not* where `LoraLoader` or `TrainLoraNode.existing_lora` look - both read `models/loras/`. So a training run reports success, the file exists, and every attempt to load or resume from it fails as though nothing was saved. Copy it into `models/loras/` after each save. The smoke script only worked because it happened to search both directories and copy.
 
+**Killing the training script does not cancel the job inside ComfyUI.** `TrainLoraNode` runs server-side; stopping the Python process that submitted it leaves the prompt executing, and the next run refuses with "ComfyUI is busy" for as long as the abandoned job takes. Clear it with `POST /queue {"clear": true}` followed by `POST /interrupt`, then confirm `/queue` shows nothing running.
+
 **A checkpoint that looks broken may just be mis-driven.** Distilled checkpoints
 (names carrying DMD, LCM, Turbo, Lightning) are trained for CFG ~1 and ~10 steps.
 Run one at CFG 4.5 for 35 steps and it returns saturated, posterised garbage that

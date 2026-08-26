@@ -35,7 +35,11 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from tools._comfyui.client import ComfyUIClient, ComfyUIError  # noqa: E402
-from tools._comfyui.lora_train import DEFAULT_LEARNING_RATE, build_sdxl_lora_train_graph  # noqa: E402
+from tools._comfyui.lora_train import (  # noqa: E402
+    DEFAULT_LEARNING_RATE,
+    DEFAULT_RANK,
+    build_sdxl_lora_train_graph,
+)
 
 SHARED = Path(r"C:\Users\Barrul\AppData\Local\Comfy-Desktop\ComfyUI-Shared")
 LORAS = SHARED / "models" / "loras"
@@ -70,7 +74,10 @@ def main() -> int:
     parser.add_argument("--checkpoint", default="juggernautXL_ragnarok.safetensors")
     parser.add_argument("--total", type=int, default=1500)
     parser.add_argument("--segment", type=int, default=250)
-    parser.add_argument("--rank", type=int, default=32)
+    parser.add_argument(
+        "--rank", type=int, default=DEFAULT_RANK,
+        help="With alpha pinned at 1.0 this sets the LoRA scale (alpha/rank). Low is strong.",
+    )
     parser.add_argument("--lr", type=float, default=DEFAULT_LEARNING_RATE)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--timeout", type=int, default=5400)
@@ -99,8 +106,11 @@ def main() -> int:
         return 1
 
     print(f"training {args.trigger} on {len(pairs)} images from {folder}")
+    epochs = args.total / max(1, len(pairs))
     print(f"{args.total} steps in {args.total // args.segment} segments of {args.segment}, "
-          f"rank {args.rank}, lr {args.lr:g}, AdamW, bf16\n")
+          f"rank {args.rank} (scale {1.0 / args.rank:.3f}), lr {args.lr:g}, AdamW, bf16")
+    print(f"{epochs:.0f} epochs over {len(pairs)} images "
+          f"({'in range' if 10 <= epochs <= 35 else 'OUTSIDE the 10-35 range guides recommend'})\n")
 
     existing = "[None]"
     checkpoints: list[dict] = []

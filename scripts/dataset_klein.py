@@ -154,6 +154,16 @@ def main() -> int:
     parser.add_argument("--height", type=int, default=1216)
     parser.add_argument("--pick", nargs="*", default=None, help="family=1,4,7 ...")
     parser.add_argument(
+        "--min-cos", type=float, default=None,
+        help=(
+            "Keep every candidate at or above this ArcFace cosine to the face "
+            "master, instead of picking by number. The first dataset was curated "
+            "by eye at mean 0.53 mutual consistency and the LoRA learned the "
+            "average of 24 lookalikes; a gate is what stops that."
+        ),
+    )
+    parser.add_argument("--max-per-family", type=int, default=None, help="Cap after the gate, highest first.")
+    parser.add_argument(
         "--backgrounds", nargs="*", default=None,
         help="Background phrases, one per image in rotation. Default: the festival set.",
     )
@@ -182,12 +192,25 @@ def main() -> int:
             return 1
 
     # ------------------------------------------------------------------ pick
-    if args.pick:
+    if args.pick or args.min_cos is not None:
         listing = json.loads((out / "candidates.json").read_text(encoding="utf-8"))
         picks = {}
-        for item in args.pick:
-            fam, nums = item.split("=", 1)
-            picks[fam] = [int(n) for n in nums.split(",") if n.strip()]
+        if args.min_cos is not None:
+            for c in listing["candidates"]:
+                if c.get("cos_face") is not None and c["cos_face"] >= args.min_cos:
+                    picks.setdefault(c["family"], []).append((c["cos_face"], c["index"]))
+            for fam in picks:
+                ranked = [i for _, i in sorted(picks[fam], reverse=True)]
+                picks[fam] = sorted(ranked[: args.max_per_family] if args.max_per_family else ranked)
+            kept = sum(len(v) for v in picks.values())
+            print(f"gate cos >= {args.min_cos:g}: kept {kept} of {len(listing['candidates'])}")
+            if kept < 8:
+                print("FAIL: too few images survive the gate to train on")
+                return 1
+        else:
+            for item in args.pick:
+                fam, nums = item.split("=", 1)
+                picks[fam] = [int(n) for n in nums.split(",") if n.strip()]
         accepted_dir = out / "accepted"
         if accepted_dir.exists():
             shutil.rmtree(accepted_dir)

@@ -39,8 +39,31 @@ __all__ = [
     "build_sdxl_lora_train_graph",
 ]
 
-#: See the module docstring: the native node pins alpha at 1.0.
-DEFAULT_LEARNING_RATE = 5e-4
+#: **Rank is not capacity here, it is strength.** `nodes_train.py` hardcodes
+#: `alpha=1.0` when it creates the adapter, and `comfy/weight_adapter/lora.py`
+#: applies `scale = alpha / rank`. So rank sets the scale directly:
+#:
+#:     rank  1 -> scale 1.000   (the "alpha = rank" convention)
+#:     rank  2 -> scale 0.500   (the "alpha = rank/2" convention, most common)
+#:     rank  4 -> scale 0.250
+#:     rank 32 -> scale 0.031   <- 16x weaker than standard practice
+#:
+#: Every guide written for kohya assumes alpha is a separate dial set to rank or
+#: rank/2, so "rank 32, alpha 16, lr 1e-4" transplanted here trains at a
+#: sixteenth of the intended strength. Our first 1500-step run did exactly that:
+#: identity barely moved (0.087 -> 0.210) while the images degraded, because the
+#: optimiser has to drive the raw B*A weights enormous to have any effect
+#: through a 0.031 scale.
+#:
+#: So: keep rank LOW. rank 4 is a quarter of standard scale with real capacity;
+#: the remaining gap is closed with the learning rate below.
+DEFAULT_RANK = 4
+
+#: 2e-4, which is 2x the 1e-4 that kohya guides pair with alpha=rank/2 - closing
+#: the last 2x of the scale gap at rank 4. The earlier 5e-4 was chosen to
+#: compensate alpha=1.0 without knowing the size of the gap; at rank 32 it
+#: undercompensated by roughly 3x, and at rank 4 it would overshoot.
+DEFAULT_LEARNING_RATE = 2e-4
 
 
 def build_sdxl_lora_train_graph(
@@ -50,7 +73,7 @@ def build_sdxl_lora_train_graph(
     prefix: str,
     steps: int,
     learning_rate: float = DEFAULT_LEARNING_RATE,
-    rank: int = 16,
+    rank: int = DEFAULT_RANK,
     batch_size: int = 1,
     grad_accumulation_steps: int = 1,
     optimizer: str = "AdamW",
