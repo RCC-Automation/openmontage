@@ -216,6 +216,8 @@ and the script rewrites the marker instead of re-downloading.
 
 **A download in progress already appears in ComfyUI's loader dropdowns.** `UNETLoader.unet_name` listed `z_image_base_bf16.safetensors` at 64% downloaded, identically to the finished Klein Base beside it. The dropdown means "a file with this name exists", nothing more. Trust the byte count against the server's `Content-Length` (the download scripts print COMPLETE / INCOMPLETE), never the listing - and for a fresh file, read the safetensors header: Klein Base was confirmed trainable by 149 tensors all BF16 and no `_quantization_metadata`, which is how the fp8 Klein was ruled out.
 
+**`SaveLoRA`'s prefix is relative to the OUTPUT directory, not the models tree.** A prefix of `loras/character/x` writes to `ComfyUI-Shared\output\loras\character\`, which is *not* where `LoraLoader` or `TrainLoraNode.existing_lora` look - both read `models/loras/`. So a training run reports success, the file exists, and every attempt to load or resume from it fails as though nothing was saved. Copy it into `models/loras/` after each save. The smoke script only worked because it happened to search both directories and copy.
+
 **A checkpoint that looks broken may just be mis-driven.** Distilled checkpoints
 (names carrying DMD, LCM, Turbo, Lightning) are trained for CFG ~1 and ~10 steps.
 Run one at CFG 4.5 for 35 steps and it returns saturated, posterised garbage that
