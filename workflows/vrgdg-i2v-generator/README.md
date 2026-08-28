@@ -102,6 +102,11 @@ The directory contains:
 The original Builder session, source images, and existing rendered clips are
 not modified.
 
+Before writing, the generator prunes every node that is not upstream of the
+actual `VHS_VideoCombine` output. This removes VRGDG's optional unreachable
+`RAMCleanup` and `VRAMCleanup` branches, which otherwise make ComfyUI report
+missing node packs even though they cannot affect the rendered video.
+
 After generation, the launcher prints a clearly labelled list under
 `Generated scene workflow file(s)`. Open those scene files in ComfyUI. The
 separately labelled supporting template is not the selected scene workflow.

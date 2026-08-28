@@ -27,6 +27,24 @@ foreach ($file in $files) {
         if ([int]$workflow.'930'.inputs.value -ne $sceneNumber) { $errors += "$($file.Name): wrong scene selector" }
         if (-not $workflow.'273'.inputs.images) { $errors += "$($file.Name): saver has no image input" }
         if (-not $workflow.'273'.inputs.audio) { $errors += "$($file.Name): saver has no audio input" }
+        $cleanupNodes = @($workflow.PSObject.Properties | Where-Object {
+            $_.Value.class_type -in @("RAMCleanup", "VRAMCleanup")
+        })
+        if ($cleanupNodes.Count -gt 0) { $errors += "$($file.Name): unreachable cleanup nodes were not pruned" }
+
+        $nodeIds = @{}
+        foreach ($nodeProperty in $workflow.PSObject.Properties) { $nodeIds[$nodeProperty.Name] = $true }
+        foreach ($nodeProperty in $workflow.PSObject.Properties) {
+            foreach ($inputProperty in $nodeProperty.Value.inputs.PSObject.Properties) {
+                $value = $inputProperty.Value
+                if ($value -is [System.Collections.IList] -and $value.Count -ge 2) {
+                    $sourceId = [string]$value[0]
+                    if ($sourceId -match '^[0-9]+(?::[0-9]+)*$' -and -not $nodeIds.ContainsKey($sourceId)) {
+                        $errors += "$($file.Name): node $($nodeProperty.Name) references missing node $sourceId"
+                    }
+                }
+            }
+        }
     } catch {
         $errors += "$($file.Name): $($_.Exception.Message)"
     }

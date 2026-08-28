@@ -4,7 +4,7 @@ State of the VRGDG integration. Update this when something lands.
 
 **Last updated:** 2026-08-28
 **Branch:** `integration/comfyui-local` (fork `RCC-Automation/openmontage`, upstream `calesthio/OpenMontage`)
-**HEAD:** tip of `integration/comfyui-local`, **7 commits ahead of
+**HEAD:** tip of `integration/comfyui-local`, **8 commits ahead of
 `origin/integration/comfyui-local`** — push when convenient. Deliberately not
 naming the tip SHA: a docs commit invalidates its own HEAD line, and chasing it
 is how this file drifts.
@@ -625,6 +625,12 @@ The interactive report prints every generated scene workflow under an explicit
 `Generated scene workflow file(s)` heading. The base template and timing SRT are
 labelled as supporting files, removing the earlier misleading report that
 showed those paths but only a count for the actual deliverable.
+
+Both scene workflows and the supporting template are pruned to the dependency
+closure of the real video output before writing. This removes six unreachable
+`RAMCleanup` / `VRAMCleanup` nodes that made ComfyUI reject every generated file
+when the optional cleanup pack was absent. The verifier now rejects those nodes
+and any dangling node reference.
 
 ---
 

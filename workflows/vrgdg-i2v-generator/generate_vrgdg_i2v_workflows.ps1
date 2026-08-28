@@ -68,6 +68,51 @@ function ConvertTo-FileSlug {
     return $slug
 }
 
+function Remove-UnreachableWorkflowNodes {
+    param(
+        [Parameter(Mandatory = $true)]$Workflow,
+        [Parameter(Mandatory = $true)][string]$OutputNodeId
+    )
+
+    if ($null -eq $Workflow.PSObject.Properties[$OutputNodeId]) {
+        throw "Output node '$OutputNodeId' was not found in the VRGDG base workflow."
+    }
+
+    $knownNodeIds = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+    foreach ($property in $Workflow.PSObject.Properties) {
+        [void]$knownNodeIds.Add([string]$property.Name)
+    }
+
+    $reachable = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+    $pending = [System.Collections.Generic.Stack[string]]::new()
+    $pending.Push($OutputNodeId)
+
+    while ($pending.Count -gt 0) {
+        $nodeId = $pending.Pop()
+        if (-not $reachable.Add($nodeId)) { continue }
+        $node = $Workflow.PSObject.Properties[$nodeId].Value
+        foreach ($inputProperty in $node.inputs.PSObject.Properties) {
+            $value = $inputProperty.Value
+            if ($value -is [System.Collections.IList] -and $value.Count -ge 2) {
+                $sourceNodeId = [string]$value[0]
+                if ($knownNodeIds.Contains($sourceNodeId) -and -not $reachable.Contains($sourceNodeId)) {
+                    $pending.Push($sourceNodeId)
+                }
+            }
+        }
+    }
+
+    $removed = @()
+    foreach ($nodeId in @($knownNodeIds)) {
+        if (-not $reachable.Contains($nodeId)) {
+            $node = $Workflow.PSObject.Properties[$nodeId].Value
+            $removed += [pscustomobject]@{ Id = $nodeId; ClassType = [string]$node.class_type }
+            $Workflow.PSObject.Properties.Remove($nodeId)
+        }
+    }
+    return @($removed)
+}
+
 function Get-EffectiveSettings {
     param($GlobalSettings, $Scene)
 
@@ -252,6 +297,12 @@ foreach ($sceneNumber in $selectedScenes) {
         Set-NodeInput $workflow "937" "second_pass_strength_$loraIndex" $(if ($null -ne $lora) { [double]$lora.second_pass_strength } else { 1.0 })
     }
 
+    # ComfyUI validates every submitted node, including branches that cannot
+    # affect the output. VRGDG ships unreachable RAMCleanup/VRAMCleanup nodes
+    # that are optional packs on this host, so keep only the dependency closure
+    # of the actual video output node.
+    [void](Remove-UnreachableWorkflowNodes $workflow "273")
+
     $fileName = "i2v_{0}_tiled.json" -f $sceneBaseName
     $destination = Join-Path $outputDirectory $fileName
     [System.IO.File]::WriteAllText(
@@ -271,6 +322,7 @@ Set-NodeInput $template "936" "tile_size" $TileSize
 Set-NodeInput $template "936" "overlap" $Overlap
 Set-NodeInput $template "936" "temporal_size" $TemporalSize
 Set-NodeInput $template "936" "temporal_overlap" $TemporalOverlap
+[void](Remove-UnreachableWorkflowNodes $template "273")
 $templatePath = Join-Path $outputDirectory "i2v_general_template_tiled.json"
 [System.IO.File]::WriteAllText($templatePath, ($template | ConvertTo-Json -Depth 100), [System.Text.UTF8Encoding]::new($false))
 
