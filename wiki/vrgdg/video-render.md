@@ -97,3 +97,40 @@ buried in project-wide defaults. Two things it has to fix on the way out:
 
 ComfyUI 0.32 / frontend 1.48 opens API-format JSON directly. The layout is
 generated, so the graph is correct but mechanically arranged.
+
+## Unattended scene round trip
+
+`workflows/vrgdg-i2v-generator/run_scene_roundtrip.ps1` closes the gap between
+an exported standalone graph and the Builder project. It generates one scene,
+submits the API graph to ComfyUI, waits on the returned prompt id, locates the
+audio-bearing MP4, calls VRGDG's `restore_scene_video` route, then persists the
+scene's video fields through `save_session`.
+
+Measured on `BurningManGirl` scene 5 on 2026-08-28:
+
+- prompt id `f3b5ac45-d33b-40b0-b3c5-3589b695c444` completed without manual UI work;
+- the generated scratch clip was restored as
+  `rendered_scene_videos/video_0005-audio.mp4`;
+- the restored file is non-empty and **4.416667 s** for a 4.4 s scene;
+- VRGDG generated `video_0005-audio.jpg` and the saved segment reports
+  `video_status: done`, `preview_mode: video`;
+- the run used tiled decode 256 and disabled the upscale/refine pass.
+
+The runner refuses to submit when ComfyUI already has a running or pending job,
+so it cannot silently associate another render with the selected scene. On a
+timeout it reports the existing prompt id and does not submit a duplicate.
+
+An open Builder panel retains a JavaScript copy of the session. The project is
+complete on disk after the unattended restore, but the panel may need one
+project reload to display the new clip.
+
+The resumable batch wrapper
+`workflows/vrgdg-i2v-generator/run_remaining_scenes.ps1` checks both the saved
+`done` status and the existence of the recorded MP4. It skips valid completed
+scenes, renders sequentially and stops on the first failure.
+
+Also measured on `BurningManGirl` on 2026-08-28: the batch rendered and restored
+scenes **6–15** without intervention or failure. A final integrity pass found
+**15/15** session segments marked `done`, with a non-empty MP4 and thumbnail for
+every scene; the ComfyUI queue was empty. Running the same batch command again
+reported no remaining scenes, confirming the resume/skip boundary.

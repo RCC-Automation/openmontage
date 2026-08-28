@@ -31,6 +31,43 @@ audio, trimming, and saver connections.
 
 ComfyUI does not need to be running to generate workflows.
 
+## Unattended generation and restore
+
+To generate one scene, submit it to ComfyUI, wait for completion, install the
+result in `rendered_scene_videos`, create its thumbnail, and persist the updated
+VRGDG Builder session, run:
+
+```powershell
+& ".\workflows\vrgdg-i2v-generator\run_scene_roundtrip.ps1" `
+  -ProjectRoot "C:\path\to\ComfyUI-Shared\output\MyProject" `
+  -Scene 5
+```
+
+The unattended path uses the AMD-safe tiled decoder and disables the measured
+unstable/slow upscale-refine pass by default. Pass `-EnableUpscale` only when
+the additional cost and native-crash risk are acceptable.
+
+The runner refuses to submit while another ComfyUI job is queued, records the
+ComfyUI prompt id, waits up to two hours without resubmitting, prefers the final
+`-audio.mp4`, calls VRGDG's own restore route (which backs up an existing scene
+video), and saves the scene's video fields through VRGDG's session route.
+
+An already-open Builder panel keeps its own JavaScript state. The project is
+fully updated on disk, but reload that project once if the panel does not show
+the restored clip immediately.
+
+To render every scene that does not already have a completed video file:
+
+```powershell
+& ".\workflows\vrgdg-i2v-generator\run_remaining_scenes.ps1" `
+  -ProjectRoot "C:\path\to\ComfyUI-Shared\output\MyProject"
+```
+
+The batch is sequential and resumable. It checks both `video_status: done` and
+that the recorded file still exists, skips valid completed scenes, and stops on
+the first failure. Run the same command again after correcting a failure to
+continue from the first incomplete scene.
+
 ## Interactive use
 
 Run:
