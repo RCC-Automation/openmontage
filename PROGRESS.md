@@ -4,7 +4,7 @@ State of the VRGDG integration. Update this when something lands.
 
 **Last updated:** 2026-08-28
 **Branch:** `integration/comfyui-local` (fork `RCC-Automation/openmontage`, upstream `calesthio/OpenMontage`)
-**HEAD:** tip of `integration/comfyui-local`, **5 commits ahead of
+**HEAD:** tip of `integration/comfyui-local`, **6 commits ahead of
 `origin/integration/comfyui-local`** — push when convenient. Deliberately not
 naming the tip SHA: a docs commit invalidates its own HEAD line, and chasing it
 is how this file drifts.
@@ -615,6 +615,11 @@ The machine fix is built in: final video decode uses `VAEDecodeTiled` at tile
 compatibility/design notes and a generated-workflow verifier. A two-scene smoke
 test (scenes 2 and 4) passed, including decoder, VAE, saver, scene-index, FPS,
 LoRA block and no-upscale assertions. DECISIONS #41.
+
+Generated workflow filenames and the downstream video `base_name` now include
+both the zero-padded scene number and a filesystem-safe description derived
+from the scene label/story beat, so queued outputs remain identifiable outside
+the Builder.
 
 ---
 

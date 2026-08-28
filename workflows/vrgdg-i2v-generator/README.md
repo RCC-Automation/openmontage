@@ -91,7 +91,9 @@ By default files are written to:
 
 The directory contains:
 
-- `i2v_scene_NNNN_tiled.json` — runnable API workflow for each selected scene.
+- `i2v_scene_NNNN_description_tiled.json` — runnable API workflow for each
+  selected scene. The description comes from the scene label or story beat and
+  is shortened to a filesystem-safe slug.
 - `all_project_scenes.srt` — complete project timing used with the selected
   1-based scene number.
 - `i2v_general_template_tiled.json` — the installed VRGDG base workflow with
@@ -112,6 +114,8 @@ not modified.
 - Up to 20 configured LoRAs and both pass strengths.
 - Complete trimming, audio, video-combine, and output connections from VRGDG's
   installed API workflow.
+- Scene-aware workflow and rendered-video base names, such as
+  `scene_0004_mara-enters-the-night-fire-district`.
 
 ## Verification
 
@@ -130,4 +134,3 @@ instances during rendering.
 The tool reads the installed VRGDG `Singlei2vForUI_API.json` at runtime rather
 than bundling a stale copy. It validates the node IDs it needs and stops if the
 installed workflow is incompatible. See [COMPATIBILITY.md](COMPATIBILITY.md).
-

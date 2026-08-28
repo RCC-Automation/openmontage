@@ -54,6 +54,20 @@ function Format-SrtTime {
     return "{0:00}:{1:00}:{2:00},{3:000}" -f $hours, $minutes, $secs, $milliseconds
 }
 
+function ConvertTo-FileSlug {
+    param(
+        [string]$Text,
+        [int]$MaximumLength = 48
+    )
+
+    $slug = ([string]$Text).Trim().ToLowerInvariant()
+    $slug = [regex]::Replace($slug, "[^\p{L}\p{Nd}]+", "-").Trim("-")
+    if ($slug.Length -gt $MaximumLength) {
+        $slug = $slug.Substring(0, $MaximumLength).TrimEnd("-")
+    }
+    return $slug
+}
+
 function Get-EffectiveSettings {
     param($GlobalSettings, $Scene)
 
@@ -158,6 +172,19 @@ foreach ($sceneNumber in $selectedScenes) {
     $sceneSettings = Get-EffectiveSettings $settings $scene
     $workflow = $baseWorkflow | ConvertTo-Json -Depth 100 | ConvertFrom-Json
 
+    $descriptionSource = [string]$scene.label
+    if ([string]::IsNullOrWhiteSpace($descriptionSource) -or $descriptionSource -match '^scene\s*\d+$') {
+        $descriptionSource = [string]$scene.story_beat
+    }
+    if ([string]::IsNullOrWhiteSpace($descriptionSource)) {
+        $descriptionSource = [string]$scene.i2v_prompt
+    }
+    $sceneSlug = ConvertTo-FileSlug $descriptionSource
+    $sceneBaseName = "scene_{0:0000}" -f $sceneNumber
+    if (-not [string]::IsNullOrWhiteSpace($sceneSlug)) {
+        $sceneBaseName += "_$sceneSlug"
+    }
+
     # AMD/ROCm workaround: use small spatial tiles for the LTX video VAE.
     $decoder = $workflow.PSObject.Properties["936"].Value
     $decoder.class_type = "VAEDecodeTiled"
@@ -184,6 +211,7 @@ foreach ($sceneNumber in $selectedScenes) {
     Set-NodeInput $workflow "935" "value" $srtPath
     Set-NodeInput $workflow "927" "audio_file" $audioPath
     Set-NodeInput $workflow "437" "value" $outputBaseName
+    Set-NodeInput $workflow "634" "base_name" $sceneBaseName
 
     # Global VRGDG render settings saved with the project.
     Set-NodeInput $workflow "736:425" "value" ([int]$sceneSettings.width)
@@ -224,7 +252,7 @@ foreach ($sceneNumber in $selectedScenes) {
         Set-NodeInput $workflow "937" "second_pass_strength_$loraIndex" $(if ($null -ne $lora) { [double]$lora.second_pass_strength } else { 1.0 })
     }
 
-    $fileName = "i2v_scene_{0:0000}_tiled.json" -f $sceneNumber
+    $fileName = "i2v_{0}_tiled.json" -f $sceneBaseName
     $destination = Join-Path $outputDirectory $fileName
     [System.IO.File]::WriteAllText(
         $destination,
