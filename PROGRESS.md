@@ -2,11 +2,12 @@
 
 State of the VRGDG integration. Update this when something lands.
 
-**Last updated:** 2026-08-24
+**Last updated:** 2026-08-28
 **Branch:** `integration/comfyui-local` (fork `RCC-Automation/openmontage`, upstream `calesthio/OpenMontage`)
-**HEAD:** tip of `integration/comfyui-local` — **pushed, in sync with
-`origin/integration/comfyui-local`.** Deliberately not naming the tip SHA: a docs
-commit invalidates its own HEAD line, and chasing it is how this file drifts.
+**HEAD:** tip of `integration/comfyui-local`, **3 commits ahead of
+`origin/integration/comfyui-local`** — push when convenient. Deliberately not
+naming the tip SHA: a docs commit invalidates its own HEAD line, and chasing it
+is how this file drifts.
 
 ---
 
@@ -410,9 +411,77 @@ the runner could not react to a round it had not started.
 
 ---
 
+## WP7 — one character across engines: the swap wins, the LoRA does not
+
+Two days on the character pipeline, end to end, on a second character
+(`projects/burningman`, "Burning Man girl") built from scratch to test it.
+
+| File | |
+|---|---|
+| `scripts/anchor_select.py` | cast sweep, N seeds, arithmetic or scattered, cluster, medoid |
+| `scripts/anchor_chooser.py` | numbered sheet; `--pick` promotes, `decided_by: human` |
+| `scripts/masters.py` | the two body masters from the face crop, on Klein multi-reference |
+| `scripts/dataset_klein.py` / `dataset_swap.py` | dataset candidates; the second adds the face swap |
+| `scripts/caption_dataset.py` | captions what varies, stages for the native trainer |
+| `scripts/train_lora.py` / `test_lora.py` | segmented training with checkpoints; held-out test |
+| `scripts/recast_vrgdg_project.py` / `commit_recast.py` | recast an existing VRGDG project |
+| `scripts/export_i2v_workflow.py` | the Builder's i2v graph as a standalone ComfyUI file |
+| `tools/_comfyui/faceid.py`, `faceswap.py`, `lora_train.py` | the three graphs |
+| `lib/character_anchor.py`, `character_dataset.py`, `rejection_dataset.py`, `sheets.py`, `render_realism.py` | |
+| tests | +45 (`test_character_anchor` 24, `test_character_dataset` 23, `test_lora_train` 9) |
+
+**LoRA training runs on ROCm** — proven, `QUESTIONS.md` Q7 answered. Native
+`TrainLoraNode`, 2.1-2.7 s/step for SDXL, checkpoints via `existing_lora`.
+
+**And the LoRA is not the answer.** Four trainings, best identity **0.37** on
+held-out prompts. A **face swap reaches 0.80** with no training. The trainer
+takes a `MODEL` input only — 3268 UNet keys, **zero text-encoder keys** — so a
+trigger token cannot learn to mean her. `DECISIONS.md` #39.
+
+Four faults were found and fixed inside the LoRA route before that conclusion,
+each real and none sufficient: dataset consistency 0.53 → 0.83; **rank is the
+scale dial in this trainer** (`alpha` hardcoded 1.0, `scale = alpha/rank`, so
+rank 32 was 16× too weak); 62 epochs was double the sane range; the accept band
+had been calibrated against a different mechanism.
+
+**Identity mechanisms, all measured against the same anchor:**
+
+| | identity | note |
+|---|---|---|
+| ReActor face swap | **0.80 – 0.88** | the one in use |
+| IP-Adapter FaceID | 0.75 – 0.84 | consistent, and renders her ~10 years younger |
+| Klein multi-reference | 0.53 – 0.68 | a family resemblance |
+| LoRA, native trainer | 0.12 – 0.46 | UNet-only |
+
+`wiki/character/face-swap.md` carries the settings and the two rules that decide
+whether it works.
+
+---
+
+## BurningManGirl — recast, and rendering
+
+The VRGDG project was recast to the new character, and this is the first time
+the fork has changed a *finished* project rather than built one.
+
+- **15 scene images** regenerated with her and installed (`openmontage_recast/`),
+  appended to each scene's `image_history` with the index moved.
+- **575 prompt edits** across seven fields per scene, plus 445 in `storyboard.json`,
+  `wizard_draft.json` and both prompt exports. Verified: zero old-character
+  mentions anywhere.
+- Backups beside the session and every side file.
+- Face swap applied only where the face is visible; twelve scenes at 0.68-0.83,
+  three left as plain renders because she is turned away or too distant.
+
+**Video: 3 of 15 clips rendered.** The blocker is measured and not subtle — the
+LTX upscale refine costs **610 s/step against the base pass's 26 s/step**. It
+hung scene 2 for 2.5 hours and crashed the process on scene 4.
+`wiki/vrgdg/video-render.md`.
+
+---
+
 ## The wiki
 
-`wiki/` — 29 pages on the Karpathy LLM-wiki pattern, lints clean.
+`wiki/` — 34 pages on the Karpathy LLM-wiki pattern, lints clean.
 `scripts/wiki_lint.py` checks frontmatter, index membership, links and
 staleness. AGENTS.md, CLAUDE.md, clock-in and clock-out all route through it.
 
@@ -456,17 +525,18 @@ manufacture a consistent 20–40 image dataset, then train on it.
 | `test_model_registry.py` | 75 passed |
 | `test_screen_test.py` | 73 passed |
 | `test_vrgdg_tools.py` + `test_vrgdg_bridge.py` | 159 passed (clock-in baseline) |
+| `test_character_anchor.py` + `test_character_dataset.py` + `test_lora_train.py` | 56 passed (WP7) |
 | `test_vrgdg_tools.py` | 45 passed |
 | `test_vrgdg_bridge.py` | 114 passed |
 | `test_render_clock.py` + `test_screen_test.py` | 94 passed |
-| full `tests/contracts` | **1302 passed, 8 skipped** — no failures |
+| full `tests/contracts` | **1350 passed, 8 skipped** — no failures |
 
 Artifacts are validated against the real `schemas/artifacts/*.schema.json`, not
 spot-checked — a manifest that does not validate fails much later, at
 checkpoint-write time, with a far worse error.
 
-Full `tests/contracts` now runs clean on this machine — **1302 passed, 8 skipped
-in 47 s**, re-verified 2026-08-25 after WP2 and the wiki. The ~13 `google.genai` / mermaid-CLI failures
+Full `tests/contracts` now runs clean on this machine — **1350 passed, 8 skipped
+in 75 s**, re-verified 2026-08-28 after WP7. The ~13 `google.genai` / mermaid-CLI failures
 noted previously do not appear here; expect them again on a bare environment
 without those installed.
 
@@ -549,26 +619,28 @@ trusted until reconciled.
 
 ## Next
 
-1. **Runbook Phase 2 — choose the anchor.** Render 40–60 close-ups of the
-   clockwork heroine on `juggernautXL_ragnarok` from the description alone,
-   embed with `lib/face_identity.py`, cluster with k-means++, promote the most
-   cohesive cluster's **medoid**. **Gate: mean pairwise ArcFace ≥ 0.80** — if
-   nothing clusters that tightly the description is the problem, not the model.
-   ~30 min GPU. `wiki/character/runbook-first-lora.md`.
+1. **Finish the BurningManGirl render — 12 of 15 clips left.** The blocker is
+   measured: the LTX upscale refine costs 610 s/step against the base pass's
+   26 s/step, and it has hung once and crashed once. **Disable the upscale**
+   (clear `upscale_model_name`, or second sigmas to `0.0`, or use
+   `scripts/export_i2v_workflow.py --no-upscale`) and render scenes 4-15 at
+   ~3.5 min each instead of ~35. Scene 4 was re-running at clock-out.
 
-2. **Then Phase 3 — the dataset ladder.** ~36 images across three shot families,
-   each generated with IP-Adapter FaceID anchored to the previous family's
-   promoted image, every save gated on ArcFace ≥0.80. 2–3 h GPU.
+2. **Then step 8, Import.** The bridge exists and is proven both directions;
+   what is missing is the skill and the checkpoint around it (`PLAN.md` WP3).
 
-3. **Then Phases 4–6** — caption, train on ComfyUI's native node
-   (LR 5e-4, not 1e-4: alpha is pinned at 1.0), and run the four-condition
-   measurement that no one in the LoRA literature has published.
+3. **Then step 9, Dailies** — the highest-value unbuilt step, and the tooling
+   now exists: ArcFace per clip against the cast record, `visual_qa`,
+   `composition_validator`. `PLAN.md` says these are "wired to nothing"; after
+   this session they have something to be wired to.
 
 ### Open, and needing Raul
 
-- **The casting decision is not closed.** Round 2 gave a real trade-off and the
-  research points at juggernautXL, but he has not said so. Phase 2 assumes it.
-- **`QUESTIONS.md` Q1–Q6** — six open, each with a stated assumption.
+- **Push.** 3 commits sit ahead of origin.
+- **The LTX upscale setting** is project-wide and lives in the Builder UI. It
+  needs turning off there, or every future render hits the same wall.
+- **`QUESTIONS.md` Q1–Q6 and Q8** — seven open, each with a stated assumption.
+  Q7 (does LoRA training run on ROCm) is answered: yes.
 - **Six of ten research families** were surveyed on the third attempt; the
   synthesis agent never completed. `wiki/character/techniques.md` is ours.
 

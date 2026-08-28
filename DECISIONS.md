@@ -991,6 +991,62 @@ where the narrowing itself needs reading against what is fixable.
 
 ---
 
+## 39. Identity comes from a face swap, not a LoRA
+
+Four LoRAs were trained on this machine before the mechanism was questioned.
+The best reached **0.37** identity to the anchor on held-out prompts. A face
+swap reaches **0.80**, on the same prompts, with no training at all.
+
+The LoRA route was not badly executed - it was pushed hard. Four faults were
+found and fixed along the way: the dataset was 0.53 consistent and became 0.83;
+rank 32 meant a 16x-too-weak LoRA because this trainer derives scale from rank;
+62 epochs was double the sane range; and the accept band had been calibrated
+against a different mechanism. Each fix was real. **None of them moved identity
+much**, because the binding constraint was elsewhere.
+
+`comfy_extras/nodes_train.py` takes a `MODEL` input only. The saved LoRA has
+3268 UNet keys and **zero text-encoder keys**. An invented trigger token
+tokenises to meaningless fragments, and the text encoder that would learn to map
+those fragments to her is frozen. A UNet-only character LoRA binds weakly by
+construction.
+
+**So: render with her non-facial features in the prompt, then transplant the
+face.** It costs ~15 s per image and no training.
+
+**The cost.** The swap changes the face and nothing else, so hair, build and
+wardrobe must be described in the prompt - a market shot generated without her
+hair came back a dark-haired woman with her facial geometry, scored 0.778, and
+read as a stranger. It also needs a visible face: below ~0.4% of frame nothing
+happens. And the swapped face is *cleaner* than the original, because the
+restoration models exist to remove blemishes.
+
+**What would change this:** Kohya trains the text encoder. Installing it and
+getting it working on ROCm is real work, and the swap already delivers.
+
+---
+
+## 40. Judgement about a rendered image is made by looking at it
+
+Three times this session a number was trusted over the picture, and three times
+it was wrong in a way the picture would have shown immediately.
+
+A cosine-only calibration reported that wide shots held identity as well as
+close-ups - true, and meaningless, because every "wide" render had come back a
+portrait. Identity was measured on full-body frames where the face is under 1%
+of the frame and ArcFace returns noise, including negative cosines; those
+numbers shaped a whole afternoon. And a claim that the wardrobe had drifted was
+made from a glance at thumbnails, asserted as fact, and acted on - deleting 15
+correct images and re-rendering for half an hour to fix a problem that did not
+exist.
+
+**The rule: a number narrows, a look decides** - the same asymmetry as #15,
+applied to images rather than to casting. Concretely: score identity only where
+the face is large enough to measure, report the face fraction beside every
+identity number so an unmeasurable frame is visible as such, and never act on a
+visual claim without opening the image.
+
+---
+
 ## Open questions
 
 - **Where should beat timing win?** L3 has VRGDG measure the music and snap scene

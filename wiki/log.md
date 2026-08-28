@@ -29,3 +29,6 @@ Format: `## [YYYY-MM-DD] <op> | <what> | <note>`
 ## [2026-08-26] compile | comfyui/graph-sources | stub -> measured: the three sources as used, the reference-drop guard, timings
 ## [2026-08-26] correct | comfyui/graph-sources | Klein is 55-77 s at 832x1216 with a reference, not ~5 s; size now quoted with the number
 ## [2026-08-26] measure | character/what-we-measured | Klein face-crop -> full body 0.62-0.78 (n=16); face-describing brief 20-37 siblings vs 6-19
+## [2026-08-28] compile | character/face-swap | ReActor 0.80-0.88 vs FaceID 0.75-0.84 vs LoRA 0.12-0.46; boost mandatory (sharpness 0.099 -> 0.368)
+## [2026-08-28] compile | practice/recasting | replacing a character in a finished VRGDG project: 7 prompt fields + 4 side files, 575+445 edits
+## [2026-08-28] compile | vrgdg/video-render | LTX two-pass timings: base 26 s/step, upscale refine 610 s/step; /free is the escape hatch

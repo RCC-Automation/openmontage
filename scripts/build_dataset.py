@@ -29,6 +29,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from scripts.dataset_klein import FESTIVAL_BACKGROUNDS, SOLO  # noqa: E402
 from lib.character_dataset import (  # noqa: E402
     ACCEPT_AT,
     HOLD_AT,
@@ -149,7 +150,7 @@ def main() -> int:
     timings = RenderTimings.load()
     route = route_key("comfyui_image", "custom", "sdxl-ipadapter-faceid")
 
-    specs = plan_dataset(LADDER, seed_base=args.seed_base)
+    specs = plan_dataset(LADDER, seed_base=args.seed_base, backgrounds=FESTIVAL_BACKGROUNDS)
     by_family: dict[str, list] = {}
     for spec in specs:
         by_family.setdefault(spec.family, []).append(spec)
@@ -223,7 +224,7 @@ def main() -> int:
 
             if not path.is_file() and not args.measure_only:
                 graph = build_faceid_graph(
-                    prompt=spec.prompt(args.brief),
+                    prompt=spec.prompt(args.brief) + ". " + spec.angle + ". " + SOLO,
                     reference_image=reference,
                     seed=seed,
                     checkpoint=args.checkpoint,

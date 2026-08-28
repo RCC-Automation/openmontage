@@ -193,9 +193,29 @@ EXPRESSIONS: tuple[str, ...] = (
     "caught mid-thought",
 )
 
+#: What her body is doing. Added 2026-08-27 after a FaceID-generated set came
+#: back with every image the same standing three-quarter smile: a reference
+#: adapter overrides pose the way it overrides framing, so unless the prompt
+#: names an action explicitly the dataset collapses to one stance - and a LoRA
+#: trained on one stance reproduces that stance whatever you ask it for.
+POSES: tuple[str, ...] = (
+    "standing, hands at her sides",
+    "walking toward the camera",
+    "sitting on a crate, leaning forward",
+    "dancing, arms raised",
+    "leaning against a wall, one knee bent",
+    "looking back over her shoulder",
+    "crouching, forearms on her knees",
+    "arms folded",
+    "turning, hair swinging",
+    "sitting cross-legged on the ground",
+    "stretching, arms overhead",
+    "hands on hips",
+)
+
 #: Strides are coprime with the vocabulary lengths so the four axes cycle
 #: independently: no two shots in a 36-image plan share the whole tuple.
-_STRIDES = {"background": 1, "lighting": 3, "angle": 1, "expression": 5}
+_STRIDES = {"background": 1, "lighting": 3, "angle": 1, "expression": 5, "pose": 7}
 
 #: A prime, like the anchor sweep's, so seeds do not land on sampler structure.
 SEED_STEP = 1009
@@ -213,11 +233,13 @@ class ShotSpec:
     angle: str
     expression: str
     seed: int
+    pose: str = ""
 
     def prompt(self, brief: str) -> str:
         parts = [
             str(brief).strip(),
             self.shot,
+            self.pose,
             self.expression,
             self.background,
             self.lighting,
@@ -235,6 +257,7 @@ class ShotSpec:
         return {
             "family": self.family,
             "shot": self.shot,
+            "pose": self.pose,
             "expression": self.expression,
             "background": self.background,
             "lighting": self.lighting,
@@ -249,6 +272,7 @@ def plan_dataset(
     backgrounds: Sequence[str] = BACKGROUNDS,
     lighting: Sequence[str] = LIGHTING,
     expressions: Sequence[str] = EXPRESSIONS,
+    poses: Sequence[str] = POSES,
 ) -> list[ShotSpec]:
     """Expand the quota table into concrete shots, varying every axis.
 
@@ -275,6 +299,7 @@ def plan_dataset(
                     lighting=lighting[(index * _STRIDES["lighting"]) % len(lighting)],
                     angle=ANGLES[(index * _STRIDES["angle"]) % len(ANGLES)],
                     expression=expressions[(index * _STRIDES["expression"]) % len(expressions)],
+                    pose=poses[(index * _STRIDES["pose"]) % len(poses)] if poses else "",
                     seed=seed_base + index * SEED_STEP,
                 )
             )

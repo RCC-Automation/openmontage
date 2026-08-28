@@ -82,8 +82,20 @@ class TestPlan:
         assert descriptor["family"] == spec.family
         assert descriptor["shot"] == spec.shot
         assert set(descriptor) == {
-            "family", "shot", "expression", "background", "lighting", "angle"
+            "family", "shot", "pose", "expression", "background", "lighting", "angle"
         }
+
+    def test_pose_varies_across_the_plan(self):
+        # A reference adapter overrides pose the way it overrides framing. Unless
+        # the prompt names an action, a FaceID-generated set comes back as one
+        # standing smile repeated - and the LoRA learns the stance, not just her.
+        specs = plan_dataset()
+        assert len({s.pose for s in specs}) >= 8
+        assert all(s.pose for s in specs)
+
+    def test_pose_reaches_the_prompt(self):
+        spec = plan_dataset()[3]
+        assert spec.pose in spec.prompt("a character")
 
 
 class TestBands:

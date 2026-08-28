@@ -18,6 +18,36 @@ or names the change.
 
 <!-- Add entries at the top. Newest first. -->
 
+### Q8. Is a Kohya-trained LoRA worth the toolchain, now that the swap works?
+
+**Status:** open
+**Raised:** 2026-08-28, after four LoRA attempts topped out at 0.37 identity
+**Blocks:** nothing today. The face swap delivers 0.80 and is in production use.
+
+**The situation.** ComfyUI's native trainer takes a `MODEL` input only - the
+saved LoRA has 3268 UNet keys and zero text-encoder keys - so the trigger token
+can never learn to mean her (`DECISIONS.md` #39). Kohya trains both, which is
+the one concrete reason to expect a materially better result.
+
+Against it: Kohya is not installed, assumes CUDA, and this is an AMD gfx1151
+box with no Triton or xformers. `bitsandbytes` and `AdamW8bit` do work here
+(HANDOFF), which unblocks the kohya *family*, but nothing has been run.
+
+**What I assumed to keep going.** That the swap is sufficient. It is, for
+stills and for the shots in `BurningManGirl`.
+
+**What changes if the answer is different.** A working LoRA removes the swap
+step, survives small faces and profiles where the swap needs a detectable face,
+and makes the character portable to any prompt without a reference image. That
+is a real convenience upgrade, not a capability the project currently lacks.
+
+**Recommendation:** leave it until a shot actually needs it - a close profile,
+or a scene where the face is too small to swap but must still read as her.
+Then the cost is justified by a specific failure rather than by tidiness.
+
+---
+
+
 ### Q7. Does LoRA training run on this ROCm machine at all?
 
 **Status:** answered — **yes.** 2026-08-26, `scripts/train_lora_smoke.py`:

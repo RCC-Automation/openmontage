@@ -112,7 +112,11 @@ def main() -> int:
     if train_clip is None:
         print("! CLIP unavailable - novelty will not be measured, only identity")
 
-    out = project / "lora_test"
+    # Keyed by trigger, not just step count. Two LoRAs trained to the same step
+    # counts would otherwise share `steps_400/00.png`, and the second test would
+    # silently re-score the first one's renders - which happened, and returned
+    # results identical to three decimals across a completely different dataset.
+    out = project / "lora_test" / args.trigger
     out.mkdir(parents=True, exist_ok=True)
     client = ComfyUIClient()
     if not client.is_available():
