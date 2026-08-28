@@ -4,7 +4,7 @@ State of the VRGDG integration. Update this when something lands.
 
 **Last updated:** 2026-08-28
 **Branch:** `integration/comfyui-local` (fork `RCC-Automation/openmontage`, upstream `calesthio/OpenMontage`)
-**HEAD:** tip of `integration/comfyui-local`, **6 commits ahead of
+**HEAD:** tip of `integration/comfyui-local`, **7 commits ahead of
 `origin/integration/comfyui-local`** — push when convenient. Deliberately not
 naming the tip SHA: a docs commit invalidates its own HEAD line, and chasing it
 is how this file drifts.
@@ -620,6 +620,11 @@ Generated workflow filenames and the downstream video `base_name` now include
 both the zero-padded scene number and a filesystem-safe description derived
 from the scene label/story beat, so queued outputs remain identifiable outside
 the Builder.
+
+The interactive report prints every generated scene workflow under an explicit
+`Generated scene workflow file(s)` heading. The base template and timing SRT are
+labelled as supporting files, removing the earlier misleading report that
+showed those paths but only a count for the actual deliverable.
 
 ---
 

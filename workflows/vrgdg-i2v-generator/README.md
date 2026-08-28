@@ -102,6 +102,10 @@ The directory contains:
 The original Builder session, source images, and existing rendered clips are
 not modified.
 
+After generation, the launcher prints a clearly labelled list under
+`Generated scene workflow file(s)`. Open those scene files in ComfyUI. The
+separately labelled supporting template is not the selected scene workflow.
+
 ## What is transferred
 
 - Prompt and 1-based scene selection.

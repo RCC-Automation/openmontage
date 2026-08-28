@@ -30,4 +30,20 @@ switch ($mode) {
     "3" { $parameters.AllScenes = $true }
     default { throw "Choose 1, 2, or 3." }
 }
-& $generator @parameters
+$result = & $generator @parameters
+
+$result | Select-Object `
+    Project,
+    SceneCount,
+    GeneratedScenes,
+    TileSize,
+    UpscaleDisabled,
+    OutputDirectory,
+    SupportingTemplate,
+    TimingSrt,
+    GeneratedWorkflowCount | Format-List
+
+Write-Host "Generated scene workflow file(s):" -ForegroundColor Green
+foreach ($workflowPath in @($result.GeneratedWorkflowFiles)) {
+    Write-Host "  $workflowPath"
+}

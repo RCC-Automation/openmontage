@@ -281,7 +281,8 @@ $templatePath = Join-Path $outputDirectory "i2v_general_template_tiled.json"
     TileSize = $TileSize
     UpscaleDisabled = [bool]$DisableUpscale
     OutputDirectory = $outputDirectory
-    Template = $templatePath
-    Srt = $srtPath
-    WorkflowFiles = $generated.Count
+    SupportingTemplate = $templatePath
+    TimingSrt = $srtPath
+    GeneratedWorkflowCount = $generated.Count
+    GeneratedWorkflowFiles = @($generated)
 }
