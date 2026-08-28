@@ -1,7 +1,7 @@
 ---
 title: Models — what is installed, what can drive it, what can be trained
 status: measured
-updated: 2026-08-26
+updated: 2026-08-28
 sources: [this-machine.md, graph-sources.md, ../../lib/model_registry.py, https://huggingface.co/black-forest-labs/FLUX.2-klein-base-4B, https://huggingface.co/Comfy-Org/z_image]
 ---
 
@@ -24,7 +24,7 @@ would tell you.
 | family | files | driven by | encoder · VAE |
 |---|---|---|---|
 | **SDXL** | 6 usable checkpoints: `juggernautXL_ragnarok` (cast for the character work), `babesByStableYogi_v65`, `babesIllustriousBy_v50`, `gonzalomoXLFluxPony_v60PhotoXLDMD`, `mopMixtureOfPerverts_v71`, `realismIllustriousBy_v50` | bundled `juggernaut-xl-ragnarok-txt2img` workflow, `CheckpointLoaderSimple` | baked into the checkpoint |
-| **Z-Image** | 6 usable: `z_image_base_bf16` (**Base**, new), `zImageTurbo_turbo`, `darkBeast30BF16INT8`, `moodyRealMix_ZIT_V7Global`, `gonzalomoZpop_v40`, `zImageUltimateNSFW_v20` | VRGDG `zimage` route | `qwen3_4b_fp8_scaled` · `ae.safetensors` (16-channel) |
+| **Z-Image** | 6 usable: `z_image_base_bf16` (**the only Base**), and five **Turbo-derived**: `zImageTurbo_turbo`, `darkBeast30BF16INT8`, `moodyRealMix_ZIT_V7Global`, `gonzalomoZpop_v40`, `zImageUltimateNSFW_v20` | VRGDG `zimage` route, or a standalone graph 3× faster — [image recipes](image-recipes.md) | `qwen3_4b_fp8_scaled` · `ae.safetensors` (16-channel) |
 | **FLUX.2 Klein** | 2: `flux-2-klein-base-4b` (**Base**, new), `flux-2-klein-4b-fp8` | VRGDG `flux_klein` route, multi-reference via `images` | `qwen3_4b_fp8_scaled` · `flux2-vae` (128-channel) |
 
 **There is no single encoder or VAE for a mixed sweep.** Z-Image decodes 16
@@ -44,7 +44,8 @@ header: count the dtypes and look for `_quantization_metadata`.
 | `flux-2-klein-base-4b.safetensors` | 149 tensors, **all BF16**, no quantization metadata, 0 guidance tensors | **trainable Base** (7,751,105,712 bytes, byte-verified against HF) |
 | `flux-2-klein-4b-fp8.safetensors` | 80 tensors `float8_e4m3fn`, `_quantization_metadata` present | inference only |
 | `z_image_base_bf16.safetensors` | 453 tensors, **all BF16**, no quantization metadata | **trainable Base** (12,309,866,400 bytes, byte-verified) |
-| `darkBeast30BF16INT8…`, the ZPop GGUFs | INT8 / GGUF | inference only |
+| `darkBeast30BF16INT8…` | **453 tensors, all BF16** — corrected 2026-08-28 | **trainable.** The "INT8" is Civitai's model-level slug, not this file's dtype |
+| the ZPop GGUFs | GGUF | inference only — and **neither loads at all**, see below |
 | `juggernautXL_ragnarok.safetensors` | fp16 SDXL checkpoint | **trainable** — and the one LoRA actually trained here so far ([lora-training](../character/lora-training.md)) |
 
 So as of 2026-08-26 **all three engine lines have trainable base weights on
@@ -57,10 +58,10 @@ from November; same byte size, different weights, different filenames.
 
 | family | files | why |
 |---|---|---|
-| Flux.1 / Chroma | `flux1-dev` (23.8 GB), `gonzalomoXLFluxPony_v30FluxDAIO` (17.1 GB), `gonzalomoChroma_v30` | need a dual-CLIP (t5xxl + clip_l) graph; no VRGDG template has one |
+| ~~Flux.1 / Chroma~~ | `flux1-dev` (23.8 GB), `gonzalomoXLFluxPony_v30FluxDAIO` (17.1 GB), `gonzalomoChroma_v30` | **all three now run** — corrected 2026-08-28, no VRGDG template was ever needed. Their recipes come from three different places: `flux1-dev` from ComfyUI's installed blueprint `Text to Image (Flux.1 Dev).json`; **FluxDAIO from its own embedded `__metadata__.prompt`** (10 steps / cfg 1.0 / euler / beta, the `DECISIONS.md` #24 method); **Chroma from Comfy-Org's online template**, as no Chroma blueprint is installed here. See [image recipes](image-recipes.md). `FluxDAIO` is **not** a dev model: zero `guidance_in` tensors, so it is driven as *schnell*, and its own merge graph shows it is 30% `gonzalomoChroma_v30` |
 | SDXL, wrong folder | `gonzalomoXLFluxPony_v70PhotoXLDMD` | valid checkpoint sitting in `diffusion_models/`; `CheckpointLoaderSimple` lists `checkpoints/` only. Move it and it becomes a seventh SDXL |
 | SDXL refiner | `sd_xl_refiner_1.0` | runs after a base; not a base |
-| Z-Image GGUF | `gonzalomoZPop_v40_BF16.gguf`, `_Q6_K.gguf` | need a `*LoaderGGUF` node; the VRGDG image templates use `UNETLoader` |
+| Z-Image GGUF | `gonzalomoZPop_v40_BF16.gguf`, `_Q6_K.gguf` | **the Q6_K does not load** — corrected 2026-08-28. `UnetLoaderGGUF` is installed and was tried directly on `_Q6_K.gguf`: `load_state_dict` fails on a key mismatch. Not a missing-node problem. The BF16 one is **untested** and duplicates the safetensors |
 | video | 5 Wan, 2 LTX (the LTX pair is what the Builder's video routes use) | not image generators |
 | audio | 3 ACE-Step | not image generators |
 | analysis | `sam3.1_multiplex_fp16` | segmentation |
@@ -76,7 +77,7 @@ from November; same byte size, different weights, different filenames.
 | CLIP-ViT-H | `clip_vision/CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors` | the loader matches on this exact long name |
 | LTX LoRAs incl. MSR V1/V2 | `loras/`, `loras/LTX/`, `loras/licon/` | Builder video modes |
 | `character/wrenx_smoke_200_steps_00001_.safetensors` | `loras/character/` | the first LoRA trained here; a throwaway |
-| ControlNet (any family), InstantID | **absent** — `controlnet/` is empty | `ZImageFunControlnet` node exists without its `model_patch` file |
+| ControlNet (any family), InstantID | **absent** — `controlnet/`, `model_patches/` and `embeddings/` all exist and are all empty | ComfyUI already ships four Z-Image ControlNet blueprints (`Canny`/`Depth`/`Pose`/`ControlNet (Z-Image-Turbo)`). They want one file — `Z-Image-Turbo-Fun-Controlnet-Union.safetensors` — loaded via `ModelPatchLoader` into `QwenImageDiffsynthControlnet`, and it goes in **`model_patches/`**, not `controlnet/` |
 
 ---
 

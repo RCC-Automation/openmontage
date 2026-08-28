@@ -1,7 +1,7 @@
 ---
 title: This machine, and why it decides everything
 status: measured
-updated: 2026-08-25
+updated: 2026-08-28
 sources: [../../HANDOFF.md, https://github.com/ROCm/ROCm/issues/6034, https://huggingface.co/docs/bitsandbytes/main/en/installation]
 ---
 
@@ -119,12 +119,34 @@ longer the slow path it was.
 ## The memory is unified, and that cuts both ways
 
 ~90 GB "VRAM" is not 90 GB of dedicated card memory — it is system RAM the GPU
-can address. That is why unusually large models load at all. It is also why
-**capacity is not the constraint; memory bandwidth is**, and why a run can
-exhaust memory in a way a discrete card would not.
+can address. That is why unusually large models load at all.
 
 Prefer **fp8, GGUF and int8-convrot** weights. The last of these matches the
 HIP kernels directly.
+
+### But capacity *is* sometimes the constraint — corrected 2026-08-28
+
+This page previously said "capacity is not the constraint; memory bandwidth is."
+That is right about throughput and wrong about limits, and the difference cost a
+dead backend. Three facts turn the ~90 GB figure into a much smaller real
+budget:
+
+| | |
+|---|---|
+| `/system_stats` reports | `vram_total` 87.9 GiB |
+| **actual system RAM** | **63.6 GiB** |
+| ComfyUI's launch args | include **`--disable-mmap`** — every load is a full read into RAM |
+| fp8 weights | are **upcast to bf16** in memory: `supports_fp8_compute()` is `False` on gfx1151 |
+
+So an 8.9 GB fp8 file occupies ~17.8 GB, and nothing is memory-mapped. On
+2026-08-28 a 17 GB all-in-one Flux checkpoint loaded on top of a resident
+`flux1-dev` (23.8 GB) plus `t5xxl_fp16` (9.8 GB) killed the process outright.
+
+**Run the heavy files alone and flush between them.** And note that
+`POST /free` with `unload_models` releases ComfyUI's model cache but not the
+process's RSS — across three flushed runs free RAM fell 45.5 → 22.3 → 19.6 GiB.
+A long sweep should order renders by model and expect to restart the backend
+between the heaviest ones.
 
 ## Traps
 

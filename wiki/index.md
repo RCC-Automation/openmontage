@@ -22,6 +22,7 @@ Every page carries a `status`: **measured** (we ran it here, with numbers) ·
 | [comfyui/this-machine.md](comfyui/this-machine.md) | measured | AMD/ROCm, what is unavailable, and why that decides everything |
 | [comfyui/graph-sources.md](comfyui/graph-sources.md) | measured | the three ways a graph reaches ComfyUI |
 | [comfyui/models.md](comfyui/models.md) | measured | what is installed, what drives what, why filenames lie |
+| [comfyui/image-recipes.md](comfyui/image-recipes.md) | measured | **every image family, its official recipe and what a render costs** |
 | [comfyui/failure-modes.md](comfyui/failure-modes.md) | measured | OOM aborts, silent unavailability, mis-driven checkpoints |
 
 ## VRGDG — the Builder
@@ -34,6 +35,7 @@ Every page carries a `status`: **measured** (we ran it here, with numbers) ·
 | [vrgdg/lyrics-and-beats.md](vrgdg/lyrics-and-beats.md) | stub | the lyric system, the beat grid, forced alignment |
 | [vrgdg/traps.md](vrgdg/traps.md) | measured | the ones that cost real time |
 | [vrgdg/video-render.md](vrgdg/video-render.md) | measured | **the upscale pass is 24x the base render** — timings, hangs, the escape hatch |
+| [vrgdg/video-engines.md](vrgdg/video-engines.md) | researched | Builder-native LTX/H3 routes and the Wan/Hunyuan custom-workflow boundary |
 
 ## OpenMontage — the governance engine
 
@@ -70,6 +72,7 @@ Every page carries a `status`: **measured** (we ran it here, with numbers) ·
 | [practice/measuring-before-believing.md](practice/measuring-before-believing.md) | measured | the house rule, and the four times it paid |
 | [practice/seeds.md](practice/seeds.md) | measured | **the variant generator** — what a seed does, why range is irrelevant, why variety saturates |
 | [practice/recasting.md](practice/recasting.md) | measured | replacing the character in a finished project — 7 prompt fields, not one |
+| [practice/image-benchmark.md](practice/image-benchmark.md) | assumed | comparing eighteen image models fairly — per-family axes, dialects, tiers |
 
 ---
 

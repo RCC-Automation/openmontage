@@ -1,7 +1,7 @@
 ---
 title: How ComfyUI fails here, and how to tell which failure it is
 status: measured
-updated: 2026-08-25
+updated: 2026-08-28
 sources: [../../HANDOFF.md]
 ---
 
@@ -37,6 +37,32 @@ is, the backend is gone.
 one model family. VRGDG ships `build_clear_memory_prompt` — a graph whose whole
 job is unloading models and freeing VRAM — which is the real fix, unapplied
 because it may corrupt the render clock's timing samples (`QUESTIONS.md` Q6).
+
+**A second instance, 2026-08-28, with a clearer cause.** A 17 GB all-in-one Flux
+checkpoint was loaded while `flux1-dev` (23.8 GB) and `t5xxl_fp16` (9.8 GB) were
+still resident. The connection dropped mid-render and the backend was gone. The
+budget that matters is **system RAM at 63.6 GiB**, not the reported 87.9 GiB of
+"VRAM", and ComfyUI runs `--disable-mmap` so nothing is memory-mapped. Run heavy
+files alone, cold, and flush between them — see
+[this machine](this-machine.md). The same run succeeded on the next attempt
+with a `POST /free` before it and nothing else loaded.
+
+---
+
+## An identical graph returns a cached result, not a render
+
+Submit a byte-identical graph twice and ComfyUI returns the previous outputs in
+about **2.0 seconds** having rendered nothing. There is no indication in the
+response that this happened.
+
+This is harmless in interactive use and poisonous in a benchmark. Measuring
+"cold vs warm" by running the same config twice produced 26.3 s then 2.0 s,
+which reads as a spectacular cache win and is simply a non-render. Two of the
+first Klein timings were fictional for exactly this reason.
+
+**How to avoid:** vary the seed on every submission — `KSampler.seed`, or
+`RandomNoise.noise_seed` on the flow-match graphs — including repeat timings of
+what is nominally the same configuration.
 
 ---
 

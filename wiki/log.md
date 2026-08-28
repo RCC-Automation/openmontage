@@ -33,3 +33,17 @@ Format: `## [YYYY-MM-DD] <op> | <what> | <note>`
 ## [2026-08-28] compile | practice/recasting | replacing a character in a finished VRGDG project: 7 prompt fields + 4 side files, 575+445 edits
 ## [2026-08-28] compile | vrgdg/video-render | LTX two-pass timings: base 26 s/step, upscale refine 610 s/step; /free is the escape hatch
 ## [2026-08-28] compile | vrgdg/video-render, vrgdg/traps | final VAE native abort, visual/API decoder mismatch, tiled-256 batch exporter
+## [2026-08-28] compile | vrgdg/video-engines | VRGDG-native LTX/H3 and custom Wan/Hunyuan engine adapter research
+## [2026-08-28] measure | vrgdg/video-render | unattended scene-5 render and restore: 4.416667 s clip, session marked done
+## [2026-08-28] measure | vrgdg/video-render | unattended scenes 6-15 completed; 15/15 videos and thumbnails verified, resumable rerun skipped all
+## [2026-08-28] measure | comfyui/image-recipes | 25 renders, 5 families, standalone graphs: Klein 10.6 s, Z-Image 18-28 s (3x the VRGDG route), flux1-dev 52.6 s
+## [2026-08-28] compile | comfyui/image-recipes | official recipes read from ComfyUI's installed blueprints; per-family axis matrix
+## [2026-08-28] correct | comfyui/this-machine | capacity IS sometimes the constraint: 63.6 GiB system RAM, --disable-mmap, fp8 upcast to bf16
+## [2026-08-28] correct | comfyui/models | darkBeast30 is BF16 not INT8 (trainable); both ZPop GGUFs fail to load; Flux.1/Chroma all run; FluxDAIO is schnell-class
+## [2026-08-28] compile | comfyui/failure-modes | identical graph returns a 2.0 s cached non-render; second RAM-exhaustion backend kill
+## [2026-08-28] compile | practice/image-benchmark | benchmark method: per-family axes, prompt dialects, what may and may not be printed
+## [2026-08-28] measure | comfyui/image-recipes | clean warm Z-Image: 14.1 s (n=5, two files); cold after model swap 50-77 s
+## [2026-08-28] correct | comfyui/image-recipes | CLIPSetLastLayer -1 is NOT the SDXL default and blacks 3 checkpoints; default == -2, pixel-identical. Retracts the 'never driven correctly' claim made earlier today
+## [2026-08-28] correct | comfyui/image-recipes, models | verifier pass: Klein 4-step source named, GGUF claim narrowed to the tested file, fp16-fix VAE claim marked unverified, blueprint provenance split three ways
+## [2026-08-28] correct | comfyui/this-machine, failure-modes | t5xxl_fp16 is 9.8 GB not 9.3
+## [2026-08-28] correct | practice/image-benchmark | cold-load band replaced with the measured 26-148 s spread; by-model ordering only pays from the standard tier up
