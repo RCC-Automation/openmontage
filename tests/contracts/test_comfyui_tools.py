@@ -1459,6 +1459,88 @@ class TestJuggernautBundledImageWorkflow:
             "juggernaut-xl-ragnarok-txt2img.json"
         )
 
+    def test_no_clip_skip_reproduces_the_original_graph_exactly(self, tmp_path):
+        """MEASURED: CLIPSetLastLayer at -1 is NOT a no-op. babesIllustrious,
+        realismIllustrious and MoP v7.1 render a pure black frame with the node
+        present at -1 and render correctly without it, reproduced across three
+        seeds. So the node must be absent unless a skip was asked for, or this
+        binding silently breaks three of the seven installed checkpoints."""
+        seen = {}
+        tool = self._tool(seen)
+        result = tool.execute({
+            "prompt": "a portrait",
+            "workflow_variant": "juggernaut_xl_ragnarok",
+            "output_path": str(tmp_path / "a.png"),
+        })
+        assert result.success, result.error
+        wf = seen["workflow"]
+        assert "8" not in wf, "CLIPSetLastLayer must not be in the graph by default"
+        assert wf["2"]["inputs"]["clip"] == ["1", 1]
+        assert wf["3"]["inputs"]["clip"] == ["1", 1]
+
+    def test_explicit_minus_one_also_excises_the_node(self, tmp_path):
+        """-1 means "no skip" whether it is the default or asked for by name."""
+        seen = {}
+        tool = self._tool(seen)
+        result = tool.execute({
+            "prompt": "a portrait",
+            "workflow_variant": "juggernaut_xl_ragnarok",
+            "clip_skip": -1,
+            "output_path": str(tmp_path / "a1.png"),
+        })
+        assert result.success, result.error
+        assert "8" not in seen["workflow"]
+
+    def test_a_real_skip_wires_both_encoders_through_the_node(self, tmp_path):
+        """Both encoders must read through it, or the negative prompt is
+        conditioned differently from the positive."""
+        seen = {}
+        tool = self._tool(seen)
+        result = tool.execute({
+            "prompt": "a portrait",
+            "workflow_variant": "juggernaut_xl_ragnarok",
+            "clip_skip": -2,
+            "output_path": str(tmp_path / "a2.png"),
+        })
+        assert result.success, result.error
+        wf = seen["workflow"]
+        assert wf["8"]["class_type"] == "CLIPSetLastLayer"
+        assert wf["8"]["inputs"]["clip"] == ["1", 1]
+        assert wf["2"]["inputs"]["clip"] == ["8", 0]
+        assert wf["3"]["inputs"]["clip"] == ["8", 0]
+
+    def test_clip_skip_minus_two_reaches_the_graph(self, tmp_path):
+        seen = {}
+        tool = self._tool(seen)
+        result = tool.execute({
+            "prompt": "a portrait",
+            "workflow_variant": "juggernaut_xl_ragnarok",
+            "clip_skip": -2,
+            "output_path": str(tmp_path / "b.png"),
+        })
+        assert result.success, result.error
+        assert seen["workflow"]["8"]["inputs"]["stop_at_clip_layer"] == -2
+
+    def test_clip_skip_accepts_the_a1111_convention_and_clamps(self, tmp_path):
+        """Authors write "clip skip 2" meaning ComfyUI's -2. Taking that
+        literally would send +2, which is outside the node's -24..-1 range and
+        fails validation server-side, minutes into a sweep."""
+        for given, expected in ((2, -2), (-99, -24), (0, -1), ("3", -3)):
+            seen = {}
+            tool = self._tool(seen)
+            result = tool.execute({
+                "prompt": "a portrait",
+                "workflow_variant": "juggernaut_xl_ragnarok",
+                "clip_skip": given,
+                "output_path": str(tmp_path / f"c{given}.png"),
+            })
+            assert result.success, result.error
+            wf = seen["workflow"]
+            if expected == -1:
+                assert "8" not in wf, given
+            else:
+                assert wf["8"]["inputs"]["stop_at_clip_layer"] == expected, given
+
     def _tool(self, seen: dict, missing: list | None = None):
         tool = ComfyUIImage()
         tool._client.is_available = lambda: True

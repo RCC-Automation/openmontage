@@ -134,6 +134,14 @@ _NO_DRIVER_REASON: dict[str, str] = {
     "flux1": "Flux.1 needs a dual-CLIP (t5xxl + clip_l) graph; no VRGDG template has one",
     "chroma": "Chroma is Flux.1-derived; same missing dual-CLIP graph as flux1",
     "sd15": "no bundled SD1.5 workflow; the bundled checkpoint graph is SDXL",
+    # MEASURED 2026-08-28: this is not a missing-node problem. UnetLoaderGGUF is
+    # installed and was submitted directly with gonzalomoZPop_v40_Q6_K.gguf; it
+    # fails inside load_state_dict on a key mismatch. Recorded so no sweep spends
+    # a slot rediscovering it.
+    "z-image-gguf": (
+        "UnetLoaderGGUF is installed but fails on the Z-Image GGUFs with a "
+        "load_state_dict key mismatch (measured 2026-08-28, Q6_K)"
+    ),
     "sdxl-refiner": "a refiner runs after a base model, it is not a base model",
     "krea2": "route exists but the Krea-2 weights are not downloaded",
     "ernie": "route exists but the ERNIE weights are not downloaded",
@@ -474,11 +482,14 @@ def _eligibility(verdict: Verdict) -> tuple[bool | None, str]:
     if verdict.role in {"refiner", "analysis"}:
         return False, _NO_DRIVER_REASON.get(verdict.family, f"role is {verdict.role}")
     if verdict.container == "gguf":
-        # Quantized weights load through UnetLoaderGGUF. Every VRGDG *image*
-        # template uses a plain UNETLoader, so the file is real and identified
-        # but nothing here can currently load it.
-        return False, ("GGUF weights need a *LoaderGGUF node; the VRGDG image "
-                       "templates use UNETLoader")
+        # Quantized weights load through UnetLoaderGGUF, which IS installed here.
+        # For Z-Image it still fails - measured 2026-08-28, see the reason below.
+        # For any other family this is untested rather than known-broken, so the
+        # reason says which of the two it is.
+        return False, _NO_DRIVER_REASON.get(
+            f"{verdict.family}-gguf",
+            "GGUF weights need a *LoaderGGUF node; untested for this family",
+        )
     if verdict.family in DRIVERS:
         return True, f"{verdict.family} via {DRIVERS[verdict.family]['graph_source']}"
     return False, _NO_DRIVER_REASON.get(

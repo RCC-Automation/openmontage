@@ -1,7 +1,8 @@
 {
   "1": {"inputs": {"ckpt_name": "juggernautXL_ragnarok.safetensors"}, "class_type": "CheckpointLoaderSimple", "_meta": {"title": "Load Juggernaut XL Ragnarok"}},
-  "2": {"inputs": {"text": "cinematic editorial portrait photograph", "clip": ["1", 1]}, "class_type": "CLIPTextEncode", "_meta": {"title": "Positive Prompt"}},
-  "3": {"inputs": {"text": "", "clip": ["1", 1]}, "class_type": "CLIPTextEncode", "_meta": {"title": "Negative Prompt"}},
+  "8": {"inputs": {"stop_at_clip_layer": -1, "clip": ["1", 1]}, "class_type": "CLIPSetLastLayer", "_meta": {"title": "CLIP skip (-1 none, -2 Illustrious/Pony)"}},
+  "2": {"inputs": {"text": "cinematic editorial portrait photograph", "clip": ["8", 0]}, "class_type": "CLIPTextEncode", "_meta": {"title": "Positive Prompt"}},
+  "3": {"inputs": {"text": "", "clip": ["8", 0]}, "class_type": "CLIPTextEncode", "_meta": {"title": "Negative Prompt"}},
   "4": {"inputs": {"width": 832, "height": 1216, "batch_size": 1}, "class_type": "EmptyLatentImage", "_meta": {"title": "832x1216 Portrait"}},
   "5": {"inputs": {"seed": 24082033, "steps": 35, "cfg": 4.5, "sampler_name": "dpmpp_2m_sde", "scheduler": "karras", "denoise": 1, "model": ["1", 0], "positive": ["2", 0], "negative": ["3", 0], "latent_image": ["4", 0]}, "class_type": "KSampler", "_meta": {"title": "Juggernaut Recommended Sampling"}},
   "6": {"inputs": {"samples": ["5", 0], "vae": ["1", 2]}, "class_type": "VAEDecode", "_meta": {"title": "Decode with Baked VAE"}},

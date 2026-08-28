@@ -54,6 +54,45 @@ _JUGGERNAUT_PROFILE = "juggernaut-xl-ragnarok-txt2img.json"
 _PROFILES = Path(__file__).resolve().parent.parent / "_comfyui" / "profiles"
 
 
+def _excise_clip_skip_node(workflow: dict[str, Any]) -> dict[str, Any]:
+    """Route the text encoders straight off the checkpoint and drop node 8.
+
+    MEASURED 2026-08-28, and the reason this function exists: putting
+    ``CLIPSetLastLayer`` in the graph at ``stop_at_clip_layer = -1`` is **not**
+    the same as leaving it out. Three installed checkpoints - babesIllustrious
+    v5, realismIllustrious v5 and MoP v7.1 - render a **pure black frame**
+    (mean luma 0.00, reproduced across three seeds) with the node present at -1,
+    and render correctly both without the node and with it at -2. Juggernaut is
+    unaffected either way.
+
+    So the node is opt-in. Passing no ``clip_skip`` reproduces the exact graph
+    this project rendered before the binding existed, byte for byte.
+    """
+    clip_source = workflow["8"]["inputs"]["clip"]
+    for node_id in ("2", "3"):
+        workflow[node_id]["inputs"]["clip"] = clip_source
+    workflow.pop("8", None)
+    return workflow
+
+
+def _clip_skip(value: Any) -> int:
+    """Clamp a clip-skip request into the range CLIPSetLastLayer accepts.
+
+    ComfyUI's node takes -24..-1 where -1 means "no skip". Callers think in both
+    conventions - A1111 writes clip skip 2 for what ComfyUI calls -2 - so a
+    positive number is read as the A1111 form and negated rather than rejected.
+    """
+    if value is None:
+        return -1
+    try:
+        skip = int(value)
+    except (TypeError, ValueError):
+        return -1
+    if skip > 0:
+        skip = -skip
+    return max(-24, min(-1, skip))
+
+
 def _retarget_checkpoint(
     stack: list[dict[str, Any]], checkpoint_name: str | None
 ) -> list[dict[str, Any]]:
@@ -188,6 +227,15 @@ class ComfyUIImage(BaseTool):
             "scheduler": {
                 "type": "string",
                 "description": "KSampler scheduler for the bundled SDXL workflow.",
+            },
+            "clip_skip": {
+                "type": "integer",
+                "description": (
+                    "CLIP skip for the bundled SDXL workflow. -1 (default) is no "
+                    "skip and is right for Juggernaut; Illustrious and Pony "
+                    "lineages are authored at -2. A positive number is read as "
+                    "the A1111 convention and negated."
+                ),
             },
             "checkpoint_name": {
                 "type": "string",
@@ -443,6 +491,12 @@ class ComfyUIImage(BaseTool):
                 bundled_profile = load_workflow_profile(_PROFILES / _JUGGERNAUT_PROFILE)
                 applied_profile_values = {
                     "checkpoint_name": checkpoint_name,
+                    # Illustrious and Pony lineages are authored at clip skip -2
+                    # and look wrong at -1; Juggernaut wants -1. Before this
+                    # binding existed the graph had no CLIPSetLastLayer at all,
+                    # so every SDXL render this project made ran at -1 -
+                    # including three checkpoints whose authors require -2.
+                    "clip_skip": _clip_skip(inputs.get("clip_skip")),
                     # Distilled checkpoints (DMD/LCM/Turbo) need their own
                     # sampler; the shipped dpmpp_2m_sde posterises them even at
                     # the right CFG. Many carry the author's settings in their
@@ -463,6 +517,9 @@ class ComfyUIImage(BaseTool):
                 workflow = apply_workflow_bindings(
                     workflow, bundled_profile, applied_profile_values
                 )
+                if applied_profile_values["clip_skip"] == -1:
+                    workflow = _excise_clip_skip_node(workflow)
+                    applied_profile_values.pop("clip_skip")
                 workflow_profile = bundled_profile
                 output_node = bundled_profile["output_node"]
             else:

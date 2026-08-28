@@ -4,6 +4,7 @@
   "output_node": "7",
   "bindings": {
     "checkpoint_name": {"node": "1", "input": "ckpt_name"},
+    "clip_skip": {"node": "8", "input": "stop_at_clip_layer"},
     "prompt": {"node": "2", "input": "text"},
     "negative_prompt": {"node": "3", "input": "text"},
     "width": {"node": "4", "input": "width"},
