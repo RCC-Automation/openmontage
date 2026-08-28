@@ -4,7 +4,7 @@ State of the VRGDG integration. Update this when something lands.
 
 **Last updated:** 2026-08-28
 **Branch:** `integration/comfyui-local` (fork `RCC-Automation/openmontage`, upstream `calesthio/OpenMontage`)
-**HEAD:** tip of `integration/comfyui-local`, **3 commits ahead of
+**HEAD:** tip of `integration/comfyui-local`, **5 commits ahead of
 `origin/integration/comfyui-local`** — push when convenient. Deliberately not
 naming the tip SHA: a docs commit invalidates its own HEAD line, and chasing it
 is how this file drifts.
@@ -597,6 +597,24 @@ SDXL workflow (not a VRGDG route).
 remains is selecting them once in the Builder so they land in
 `VRGDG_Model_Defaults`, which is what the client reads.
 **Blocked on opt-in groups:** `krea2`, `krea2_2pass`, `ernie_image`, `minimax_h3`.
+
+---
+
+## General VRGDG I2V workflow generator ✅
+
+`workflows/vrgdg-i2v-generator/` is a self-contained offline/batch exporter for
+the Builder's GGUF LTX 2.3 image-to-video route. It selects one, several or all
+scenes from any compatible `vrgdg_builder_session.json`, clones VRGDG's complete
+installed API workflow, and carries project plus scene-level model, sampler,
+LoRA, prompt, image, audio and timing settings into standalone ComfyUI JSON.
+
+The machine fix is built in: final video decode uses `VAEDecodeTiled` at tile
+256 instead of the embedded prompt's plain decoder (the visual subgraph's tile
+1280 is also unsafe here). `-DisableUpscale` independently drops the measured
+610 s/step second pass. The package includes an interactive launcher,
+compatibility/design notes and a generated-workflow verifier. A two-scene smoke
+test (scenes 2 and 4) passed, including decoder, VAE, saver, scene-index, FPS,
+LoRA block and no-upscale assertions. DECISIONS #41.
 
 ---
 

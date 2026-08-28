@@ -1,7 +1,7 @@
 ---
 title: VRGDG traps
 status: measured
-updated: 2026-08-25
+updated: 2026-08-28
 sources: [../../HANDOFF.md, ../../DECISIONS.md]
 ---
 
@@ -11,6 +11,19 @@ code. They are grouped by what they do to you, because the recovery differs.
 ---
 
 ## It silently does the wrong thing
+
+**The visible decoder and submitted decoder can disagree.** The LTX 2.3 Music
+Video Creator workflow's visual subgraph contains `VAEDecodeTiled` with a
+spatial tile of 1280, but the embedded API prompt contains plain `VAEDecode`.
+Changing what is visible on the canvas therefore may not change what a custom
+Builder UI submits. Inspect the API prompt or the graph returned by the build
+route. On this AMD host the safe final decoder is tiled at 256.
+
+**A partial API prompt is not a reusable workflow.** An extracted scene graph
+that looked complete was missing its VAE, model, CLIP, source image, audio and
+saver connections. Clone the complete installed workflow or use VRGDG's build
+route, then change explicit inputs. Do not rebuild it from the nodes shown in a
+crash trace.
 
 **`flux_klein` reference images go in `images`, not `image_paths`.** The key is
 `images` or `image_ingredients` — a path, a newline-separated list, or

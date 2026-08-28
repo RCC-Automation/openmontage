@@ -1047,6 +1047,33 @@ visual claim without opening the image.
 
 ---
 
+## 41. Batch-export VRGDG scenes from its installed complete API workflow
+
+A standalone scene workflow is useful precisely when the Builder hides a
+machine-specific failure, but the first attempted extraction showed the risk:
+copying only the nodes that look relevant dropped required VAE, model, CLIP,
+image, audio and saver connections. The file looked plausible and could not run.
+
+**Decision:** the offline/batch exporter clones VRGDG's installed
+`Singlei2vForUI_API.json`, changes only named project/scene inputs, and fails if
+the expected adapter node IDs are absent. It never bundles a copy of VRGDG's
+workflow. The live `build_i2v` route remains preferred when ComfyUI is running;
+the offline adapter is for crash recovery, inspection and preparing many scenes.
+
+The machine correction is explicit and narrow: replace the final video
+`VAEDecode` with `VAEDecodeTiled` at spatial tile 256. Disabling the second
+latent-upscale/refine pass is a separate opt-in transformation because it
+changes output resolution as well as cost. The generator carries the session's
+model, sampler, LoRA, timing and per-scene override data instead of silently
+falling back to the template author's defaults.
+
+**Cost:** this adapter is coupled to one VRGDG route and workflow version. A
+VRGDG node-ID change stops generation until the adapter is updated. That is an
+intentional visible failure, preferable to a valid-looking graph wired to the
+wrong inputs.
+
+---
+
 ## Open questions
 
 - **Where should beat timing win?** L3 has VRGDG measure the music and snap scene

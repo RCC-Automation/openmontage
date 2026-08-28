@@ -32,3 +32,4 @@ Format: `## [YYYY-MM-DD] <op> | <what> | <note>`
 ## [2026-08-28] compile | character/face-swap | ReActor 0.80-0.88 vs FaceID 0.75-0.84 vs LoRA 0.12-0.46; boost mandatory (sharpness 0.099 -> 0.368)
 ## [2026-08-28] compile | practice/recasting | replacing a character in a finished VRGDG project: 7 prompt fields + 4 side files, 575+445 edits
 ## [2026-08-28] compile | vrgdg/video-render | LTX two-pass timings: base 26 s/step, upscale refine 610 s/step; /free is the escape hatch
+## [2026-08-28] compile | vrgdg/video-render, vrgdg/traps | final VAE native abort, visual/API decoder mismatch, tiled-256 batch exporter

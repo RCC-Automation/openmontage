@@ -427,6 +427,13 @@ reads the whole image and a bystander in it gets conditioned in.
 **The session has no version field.** ~95 top-level keys, ~110 per segment. Never
 construct one. See DECISIONS.md #2.
 
+**VRGDG's visible workflow may not be the graph its custom UI submits.** In the
+LTX 2.3 Music Video Creator, the visual VAE subgraph has `VAEDecodeTiled` at
+tile 1280 while `extra.prompt` has plain `VAEDecode`. The AMD native abort at
+final decode is fixed in standalone exports with tiled decode at 256. Use
+`workflows/vrgdg-i2v-generator/`; do not patch only the visible subgraph, and do
+not use a hand-pruned scene prompt that has lost required connections.
+
 ---
 
 ## 6b. The production workflow

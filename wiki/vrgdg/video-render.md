@@ -40,6 +40,24 @@ Either clear `upscale_model_name` in the Builder's LTX settings, or set the
 second sigma schedule to `0.0`. In the exported standalone workflow that is
 `--no-upscale`.
 
+## The final VAE decode is a separate failure
+
+The latent-upscale/refine pass and the final video VAE decode are independent
+stages. On this AMD/ROCm Windows host, a render can finish both sampling passes
+and then abort Python inside the LTX VAE's 3D convolution. The native exit is
+`0xC0000409`; it is not a catchable Python out-of-memory exception.
+
+The Builder's LTX 2.3 visual workflow contains a tiled decoder configured with
+a spatial tile of **1280**, while its embedded API prompt still contains plain
+`VAEDecode`. The working compatibility setting is `VAEDecodeTiled` with spatial
+tile **256**, overlap 64, temporal size 32 and temporal overlap 16. This reduces
+the individual MIOpen convolution workload. It does not make the expensive
+upscale/refine pass cheaper.
+
+`workflows/vrgdg-i2v-generator/` packages that correction for one, selected or
+all scenes. It reads the complete installed VRGDG API workflow, preserves all
+connections, and can additionally disable the second pass.
+
 ## Traps
 
 **"Did not finish before the 2-hour wait limit" usually means hung, not slow.**
