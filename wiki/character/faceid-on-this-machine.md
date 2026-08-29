@@ -119,13 +119,37 @@ a path string, so the anchor can stay in the project where the evidence lives;
 
 ---
 
-## Open questions
+## It does survive a framing change — answered 2026-08-29
 
-- Does the embedding path survive a framing change where the latent path
-  collapsed? **Still unanswered here.** The wide-shot identity numbers look
-  strong (0.72–0.79) but every wide render was pulled toward a portrait, so the
-  framing never actually changed enough to test it. Answering it needs
-  `start_at` high enough to hold the framing, which is where identity starts to
-  fall.
+The open question below is now closed. Run against the same anchor at both shot
+sizes, with face fraction recorded so the framing override is visible rather
+than inferred:
+
+| framing | `start_at` | identity | face fraction |
+|---|---|---|---|
+| close-up | 0.0 | 0.573 | 23.0% |
+| close-up | 0.4 | **0.685** | 14.8% |
+| full body | 0.0 | **0.696** | 7.6% |
+| full body | 0.4 | 0.618 | 6.1% |
+
+**The embedding path holds at distance.** 0.696 on a full-body render, where
+Klein's latent reference conditioning came back *unmeasurable* — its face landed
+under 1% of frame. That is the latent-vs-embedding split predicted in
+[reference-conditioning](reference-conditioning.md), confirmed here.
+
+**And the framing override is still real, just survivable.** Prompt-only full
+bodies on this pool sit at 0.35–5.2% face fraction; FaceID's are 6.1–7.6%. It is
+pulling the camera in, only not far enough to destroy the shot. `start_at` trades
+the two against each other in both directions: at close-up, holding it off *helps*
+identity (0.573 → 0.685), while at full body holding it off costs identity
+(0.696 → 0.618).
+
+Ranked against the other three mechanisms in
+[choosing-a-mechanism](choosing-a-mechanism.md): third, behind the face swap and
+Klein reference at close-up, and second at full body because Klein drops out.
+
+---
+
+## Open questions
 - Is there a setting that holds identity without idealising skin? Nothing in the
   swept range did. Lower `lora_strength` reduces both together.

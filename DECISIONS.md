@@ -1074,6 +1074,52 @@ wrong inputs.
 
 ---
 
+## 42. Reach for the negative prompt before reaching for ControlNet
+
+*accepted — 2026-08-29*
+
+**Context.** A character brief containing "burning man ... outdoor festival"
+produced people nobody asked for in 13 of 36 renders, up to seven in one frame.
+Because identity is scored on the largest face, some of those scores were
+measuring a stranger. ControlNet was recommended as the fix, downloaded (4.5 GB
+across two families) and tested.
+
+**It did not work, and the reason is the decision.** Pose control was given a
+control image and `max_detections: 1`, and the pose map it produced contained
+**exactly one skeleton** — verified by saving the map. The renders still came
+back with 3 and 4 people. ControlNet constrains the structure of the subject; it
+does not stop the model painting other people elsewhere in the frame. The extra
+figures were the prompt being obeyed.
+
+Crowd terms in the **negative prompt** fixed it 3-for-3, cost nothing, and ran
+faster than either ControlNet pass (22–36 s against 45–98 s).
+
+**Decision.** For subject count, and for anything the prompt is plausibly
+causing, change the prompt first and measure before adding a model patch.
+ControlNet remains justified as a capability the pool otherwise lacks — pose,
+depth and composition control — and it is the only lever for the ten models that
+cannot use a negative prompt at all. It is not the first thing to reach for.
+
+**Cost, and the reason this is written down.** This reverses a recommendation
+made earlier the same day, in which ControlNet was called "the biggest hole, and
+the shortest path across it" on the strength of this exact problem. The download
+was not wasted, but the reasoning was wrong: a capability gap was diagnosed where
+a prompting habit was the cause.
+
+**The constraint that shapes it.** At `cfg` exactly 1.0 ComfyUI never evaluates
+the negative branch, so this fix is unavailable — not weak, absent — on **10 of
+19 installed models**: the three DMD SDXL checkpoints, all five Z-Image Turbo
+merges, Klein distilled and the FluxDAIO. Measured control: darkBeast30 at cfg
+1.0 with the same negative stayed at 2 people while three cfg>1 models went to 1.
+
+Also recorded there: **always save the intermediate.** Without the pose map on
+disk this would have read as "pose control does not work here" rather than "pose
+control worked and the problem is elsewhere".
+
+See `wiki/practice/prompting.md`.
+
+---
+
 ## Open questions
 
 - **Where should beat timing win?** L3 has VRGDG measure the music and snap scene

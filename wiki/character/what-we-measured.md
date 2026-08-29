@@ -141,6 +141,29 @@ checkpoints carry one. (`DECISIONS.md` #24.)
 
 ---
 
+## No model renders her from her description — 19 models, 2026-08-29
+
+The whole installed pool, one character brief, scored against her approved
+anchor. Best prompt-only score **0.418**; median ~0.29; worst 0.192. The
+"recognisably the same person" threshold is 0.70.
+
+That includes **Qwen-Image 2512**, added specifically because it is the
+strongest instruction-following model available here (GenEval Counting 0.89, and
+the only model in the pool that renders legible text). It scored **0.399 and
+came eighth**, below a Pony merge.
+
+**Adding a better model did not raise the ceiling.** That is the finding: the
+limit is a property of text-to-image, not of this particular pool, so the return
+is in the mechanisms rather than in model shopping. Ranked in
+[choosing-a-mechanism](choosing-a-mechanism.md).
+
+A second result from the same run: **the model ranking does not transfer between
+shot sizes.** Chroma is 16th at close-up and 1st at full body; Juggernaut goes
+5th to 12th. Cast on close-up evidence, shoot wides, and nothing measured here
+supports the choice.
+
+---
+
 ## Open questions
 
 - Whether a trained character LoRA beats all of this, and whether one can be

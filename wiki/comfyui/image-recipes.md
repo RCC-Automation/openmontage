@@ -1,14 +1,14 @@
 ---
 title: Driving each image family — the recipes, and what they cost
 status: measured
-updated: 2026-08-28
+updated: 2026-08-29
 sources: [models.md, this-machine.md, graph-sources.md, "C:/Users/Barrul/AppData/Local/Comfy-Desktop/ComfyUI-Installs/ComfyUI/ComfyUI/blueprints/", https://huggingface.co/Tongyi-MAI/Z-Image-Turbo, https://huggingface.co/black-forest-labs/FLUX.2-klein-base-4B]
 ---
 
 Every image family installed here, driven through a **standalone API graph**
 rather than a VRGDG route, with the settings each family actually wants and what
-a render costs. Measured 2026-08-28: 25 renders at 1280×720, one prompt, seed
-7777, five families.
+a render costs. Measured 2026-08-28/29: 25 renders at 1280×720 plus a sixth family added on
+the 29th, one prompt, seed 7777.
 
 A reader's overview of all of this — the pool, the axis matrix, the
 recommendations and the gaps — is compiled at
@@ -24,7 +24,7 @@ this machine. Read the blueprint before inventing a graph.
 
 ## What we know
 
-### The pool is 18 models, in five families
+### The pool is 19 models, in six families
 
 | family | models | driven by |
 |---|---|---|
@@ -33,6 +33,7 @@ this machine. Read the blueprint before inventing a graph.
 | FLUX.2 Klein | 2 — distilled fp8, Base bf16 | `UNETLoader` + `CLIPLoader type: flux2` |
 | Flux.1 | 2 — `flux1-dev`, the FluxDAIO all-in-one | `DualCLIPLoader type: flux` / `CheckpointLoaderSimple` |
 | Chroma | 1 | `UNETLoader` + `CLIPLoader type: chroma` |
+| Qwen-Image | 1 — 2512 Lightning | `UNETLoader` + `CLIPLoader type: qwen_image` |
 
 Both Z-Image GGUFs are **not** in that count — see Traps.
 
@@ -47,6 +48,7 @@ Both Z-Image GGUFs are **not** in that count — see Traps.
 | **flux1-dev** | 20 | 1.0 | `euler` · `simple` | built-in 1.15 | zeroed; guidance 3.5 instead |
 | **FluxDAIO** | 10 | 1.0 | `euler` · `beta` | built-in 1.0 | inert at cfg 1 |
 | **Chroma** | 26 | 3.5 | `euler` · `beta` | `ModelSamplingAuraFlow` **1.0** | **real — the point of the model** |
+| **Qwen-Image 2512** | 4 | **1.0** | `euler` · `simple` | none | real, but inert at cfg 1 |
 
 Z-Image and Chroma both take `ModelSamplingAuraFlow`, at different shifts.
 Klein takes neither shift node — `Flux2Scheduler` computes the schedule from
@@ -64,10 +66,15 @@ width and height and the shift patch is inert against it.
 | `FluxDAIO` | 10 steps | — | 81.3 s |
 | `z_image_base_bf16` | 25 steps, cfg 4 | — | 105.4 s |
 | `gonzalomoChroma_v30` | 26 steps, cfg 3.5 | — | 142.5 s |
+| `qwen_image_2512` (1664×928) | 4 steps, cfg 1.0 | **24.2 s** | 85.9 s |
 | `klein-base-4b` | 50 steps, cfg 4 | — | 129.5 s |
 
 Cold includes the weight load and is the number that dominates a sweep: order
 renders **by model**, not by prompt.
+
+Qwen is timed at **1664×928 (1.54 MP)**, its native 16:9 bucket, against
+1280×720 (0.92 MP) for everything else — so its 24.2 s is doing 1.7× the pixels
+and is not directly comparable to the rows above it.
 
 ### Three findings that change what to reach for
 
@@ -94,6 +101,26 @@ covers **Base** at 20 steps / cfg 5.
 genuine second pass: 30.3 s → 58.9 s at identical steps. The same doubling
 applies to Z-Image Base and to Chroma.
 
+**And cfg 1.0 costs something other than speed.** Ten of the nineteen models run
+there — the three DMD SDXL checkpoints, all five Z-Image Turbo merges, Klein
+distilled and the FluxDAIO — and at cfg exactly 1.0 ComfyUI never evaluates the
+negative branch at all. Those ten have no working negative prompt, which is the
+only free fix for the subject-count problem. See
+[practice/prompting](../practice/prompting.md).
+
+### Qwen-Image is the sixth family, and it is here for adherence
+
+Added 2026-08-29 for the one thing the other five are weak at: following
+instructions about framing, counts and composition. Measured on this machine —
+correct count and attribute binding on "exactly three women, red then yellow then
+blue, left to right", and the **only model in the pool that renders legible
+text**. It is not a casting tool: on a character brief it scored 0.399, eighth of
+nineteen ([character/what-we-measured](../character/what-we-measured.md)).
+
+Its encoder is **Qwen2.5-VL-7B — a full vision-language model, not a CLIP**,
+which is where the adherence comes from and why it costs 9.4 GB on its own.
+Total resident ~30 GB.
+
 ### Which knobs are real, per family
 
 The axes are **per family**, not global — the single most important fact for
@@ -116,7 +143,7 @@ it is the intended pairing for that merge, not an experiment.
 
 ## What it costs
 
-A one-prompt sheet across all 18 models is roughly **28 minutes** including cold
+A one-prompt sheet across all 19 models is roughly **30 minutes** including cold
 loads. Seven prompts is about 2.5 hours if ordered by model. See
 [the image benchmark](../practice/image-benchmark.md).
 

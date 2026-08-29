@@ -58,6 +58,7 @@ Every page carries a `status`: **measured** (we ran it here, with numbers) ·
 | [character/reference-conditioning.md](character/reference-conditioning.md) | researched | **the two mechanisms that fail oppositely** — and why ours collapsed |
 | [character/faceid-on-this-machine.md](character/faceid-on-this-machine.md) | measured | **what the embedding path buys and what it costs** — settings, the framing override, the plastic skin |
 | [character/face-swap.md](character/face-swap.md) | measured | **the mechanism that actually holds a face here** — 0.80-0.88, and its two rules |
+| [character/choosing-a-mechanism.md](character/choosing-a-mechanism.md) | measured | **all four ranked in one run** — swap, reference, FaceID, LoRA, at two shot sizes |
 | [character/dataset-bootstrap.md](character/dataset-bootstrap.md) | researched | 20–40 consistent images from one render |
 | [character/runbook-first-lora.md](character/runbook-first-lora.md) | assumed | **the steps** — phase by phase, with a gate on each |
 | [character/video-identity.md](character/video-identity.md) | stub | what drifts across a clip and what stops it |
@@ -68,11 +69,12 @@ Every page carries a `status`: **measured** (we ran it here, with numbers) ·
 |---|---|---|
 | [practice/the-loops.md](practice/the-loops.md) | stub | the four places quality comes from |
 | [practice/casting.md](practice/casting.md) | stub | narrowing to one character, round by round |
-| [practice/prompting.md](practice/prompting.md) | stub | what binds and what is folklore |
+| [practice/prompting.md](practice/prompting.md) | measured | **the bystander problem was a prompting failure** — and half the pool cannot use the fix |
 | [practice/measuring-before-believing.md](practice/measuring-before-believing.md) | measured | the house rule, and the four times it paid |
 | [practice/seeds.md](practice/seeds.md) | measured | **the variant generator** — what a seed does, why range is irrelevant, why variety saturates |
 | [practice/recasting.md](practice/recasting.md) | measured | replacing the character in a finished project — 7 prompt fields, not one |
 | [practice/image-benchmark.md](practice/image-benchmark.md) | assumed | comparing eighteen image models fairly — per-family axes, dialects, tiers |
+| [practice/the-song.md](practice/the-song.md) | measured | **150 s holds, 84 BPM lands** — and the one check that decides if a take is usable |
 
 ---
 

@@ -47,3 +47,11 @@ Format: `## [YYYY-MM-DD] <op> | <what> | <note>`
 ## [2026-08-28] correct | comfyui/image-recipes, models | verifier pass: Klein 4-step source named, GGUF claim narrowed to the tested file, fp16-fix VAE claim marked unverified, blueprint provenance split three ways
 ## [2026-08-28] correct | comfyui/this-machine, failure-modes | t5xxl_fp16 is 9.8 GB not 9.3
 ## [2026-08-28] correct | practice/image-benchmark | cold-load band replaced with the measured 26-148 s spread; by-model ordering only pays from the standard tier up
+- 2026-08-29 compile: practice/the-song.md - ACE-Step at 150 s, tempo accuracy, and the sub-second-line check that film 1 lacked
+## [2026-08-29] compile | character/choosing-a-mechanism | four identity mechanisms ranked in one run: swap 0.77-0.79, Klein ref 0.72, FaceID 0.62-0.70, LoRA 0.36-0.39, any description 0.18-0.42
+## [2026-08-29] measure | character/faceid-on-this-machine | the embedding path DOES survive a framing change: 0.696 at full body where Klein reference went unmeasurable. Closes that page's open question
+## [2026-08-29] measure | character/what-we-measured | 19 models incl. Qwen-Image 2512 cannot render her from her description; best 0.418, Qwen 8th at 0.399. The ceiling is text-to-image, not this pool
+## [2026-08-29] compile | character/measuring-identity | face-fraction gate: refuse to score identity below 1% of frame. 7 of 18 full-body cells unscoreable, one negative
+## [2026-08-29] correct | practice/prompting | RETRACTS the ControlNet recommendation for subject count. Crowd terms in the negative fix it 3-for-3, free and faster; pose control with a verified single-skeleton map did not
+## [2026-08-29] correct | practice/prompting | RETRACTS 'several models ignored full body and gave a medium shot'. All 18 obeyed the framing; the failure was subject count
+## [2026-08-29] compile | comfyui/image-recipes | Qwen-Image 2512 as a sixth family, 24.2 s warm at 1664x928; and the cfg-1.0 consequence - 10 of 19 models have no working negative prompt

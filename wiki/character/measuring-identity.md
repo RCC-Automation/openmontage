@@ -27,6 +27,31 @@ about 0.3 s per image, so it is cheap enough to run on every candidate.
 | 0.70+ | recognisably the same person |
 | 0.92 – 1.00 | the same woman every time |
 
+### The score is only valid where the face is big enough — measured 2026-08-29
+
+**Report face fraction beside every identity number, and refuse to score below
+1% of frame.** The cosine does not degrade gracefully as the face shrinks; it
+becomes noise that is indistinguishable from a measurement.
+
+Measured across one character at two shot sizes, prompt-only renders:
+
+| shot | face fraction | identity |
+|---|---|---|
+| close-up | 12.0 – 56.2% | all 18 scored, 0.19 – 0.42 |
+| full body | 0.35 – 5.2% | **7 of 18 fell under 1% and are not scoreable** |
+
+Among the seven: a **negative** cosine (−0.041), and — worse — the model that
+had *won* the close-up round on identity. Reporting its −0.041 as a result would
+have been inventing one.
+
+`lib/shot_size.py` computes both numbers from the same detector pass that
+identity already runs, so this costs nothing. `MEASURABLE_FACE_FRACTION = 0.01`
+is the gate.
+
+This is `DECISIONS.md` #40 turned into a check rather than a warning: an
+afternoon was once spent on identity numbers read off frames where the face was
+a handful of pixels.
+
 The raw band was rescaled 0.21 → 0.70 after measuring; the unscaled numbers are
 compressed into a range too narrow to act on.
 
