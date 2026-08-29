@@ -134,3 +134,44 @@ scenes **6–15** without intervention or failure. A final integrity pass found
 **15/15** session segments marked `done`, with a non-empty MP4 and thumbnail for
 every scene; the ComfyUI queue was empty. Running the same batch command again
 reported no remaining scenes, confirming the resume/skip boundary.
+
+## Wan 2.2 as an alternative engine — measured, and it is not the cheap one
+
+Benchmarked on `the-man-watches` 2026-08-29, same keyframe, 81 frames at 24 fps
+(3.38 s), through the bundled `wan22-i2v-4step.json` and
+`local_workflows/my_video_wan2_2_14B_flf2v.json`.
+
+| engine | resolution | frames | wall clock |
+|---|---|---|---|
+| **LTX 2.3**, upscale off | 1280×720 | 273 | **3 min 23 s** |
+| Wan 2.2 14B i2v, LightX2V 4-step | 640×640 | 81 | **30.9 min** (cold) |
+| Wan 2.2 14B first-to-last-frame | 640×640 | 81 | **13.1 min** (warm) |
+
+**LTX is roughly four times faster at four times the pixels and three times the
+frames.** Per pixel-frame the gap is about fiftyfold. The four-step LoRA does
+reduce the step count as advertised; what it cannot reduce is loading **two 14B
+fp8 UNets — about 27 GB — per clip** on a bandwidth-bound integrated GPU. Step
+count beats parameter count only when the parameters are already resident.
+
+The 30.9 vs 13.1 minute spread between the two Wan runs is the cold load. Budget
+~13 min per clip in a warm batch, ~31 for the first.
+
+**So Wan is not a replacement for LTX here; it is a special-purpose tool.** The
+thing it buys that LTX does not is `WanFirstLastFrameToVideo`: given a start
+frame and an end frame it generates the motion between them, so an action can be
+*authored* rather than described and hoped for. At 13 minutes a clip that is
+affordable for a handful of shots where a specific thing has to happen, and
+unaffordable for a whole film.
+
+Both engines produced coherent, believable crowd motion at these settings, and
+i2v **ignored a prompt instruction to hold a subject still** — the character
+walked off with the crowd. That is the failure first-to-last-frame exists to fix.
+
+### Trap: node order does not tell you which frame is which
+
+`WanFirstLastFrameToVideo` reads `start_image` from node **68** and `end_image`
+from node **62** in the shipped graph — the higher id is the *start*. A role
+prober that lists image loaders in numeric order will imply the opposite, and
+feeding them backwards renders the shot in reverse: a working mechanism that
+looks like a broken one, at 13 minutes a look. Read the consuming node's input
+names, never the loader order.
