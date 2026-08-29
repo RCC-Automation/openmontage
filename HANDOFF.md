@@ -424,6 +424,16 @@ bystander (`anchor_select.py --largest-face`). For the *reference* image, prefer
 a clean single-face render or crop to head-and-shoulders - Klein's reference
 reads the whole image and a bystander in it gets conditioned in.
 
+**VRGDG's templates name models you do not have, and the aliases chain.**
+Enabling the Krea-2 route took three, each surfacing only once the previous was
+fixed: `vae/flux/flux2-vae.safetensors`, `diffusion_models/z_image_turbo_bf16.safetensors`
+and `text_encoders/qwen_3_4b.safetensors`, against the differently-named files
+actually installed. **Fix with a hardlink, not a rename** — same volume, zero
+bytes, no admin, and both names keep working so nothing already pointing at the
+original breaks. And `ernie_image` needs every model named in the payload: it
+builds with an empty `clip_name` that no alias can repair. See
+`wiki/vrgdg/routes.md`.
+
 **The session has no version field.** ~95 top-level keys, ~110 per segment. Never
 construct one. See DECISIONS.md #2.
 

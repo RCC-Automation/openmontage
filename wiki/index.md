@@ -31,11 +31,12 @@ Every page carries a `status`: **measured** (we ran it here, with numbers) ·
 |---|---|---|
 | [vrgdg/what-it-is.md](vrgdg/what-it-is.md) | stub | the cockpit inside ComfyUI, and what it does not do |
 | [vrgdg/builder-session.md](vrgdg/builder-session.md) | stub | the opaque session, and the rule that follows from it |
-| [vrgdg/routes.md](vrgdg/routes.md) | stub | build routes, project-bound vs standalone, host-bound |
+| [vrgdg/routes.md](vrgdg/routes.md) | measured | build routes, project-bound vs standalone, host-bound — **and what Krea-2 and ERNIE cost** |
 | [vrgdg/lyrics-and-beats.md](vrgdg/lyrics-and-beats.md) | stub | the lyric system, the beat grid, forced alignment |
 | [vrgdg/traps.md](vrgdg/traps.md) | measured | the ones that cost real time |
 | [vrgdg/video-render.md](vrgdg/video-render.md) | measured | **the upscale pass is 24x the base render** — timings, hangs, the escape hatch |
 | [vrgdg/video-engines.md](vrgdg/video-engines.md) | researched | Builder-native LTX/H3 routes and the Wan/Hunyuan custom-workflow boundary |
+| [vrgdg/scene-generation.md](vrgdg/scene-generation.md) | measured | **every way to turn a still into a shot** — what each needs, what each costs |
 
 ## OpenMontage — the governance engine
 

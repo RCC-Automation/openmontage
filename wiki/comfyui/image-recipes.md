@@ -217,3 +217,34 @@ deliberate excursions to −3 or −4, which one installed author varies for eff
   is 30% `gonzalomoChroma_v30`? The two are not independent samples.
 - What do the five Turbo-derived Z-Image merges actually differ *in*, beyond
   look? All five take the identical recipe.
+
+---
+
+## The models render places, not just faces
+
+Measured 2026-08-29, one prompt — an elevated wide of a temporary desert city —
+across five models at 1280x720:
+
+| model | time | what came back |
+|---|---|---|
+| `klein_distilled` | **30.5 s** | scattered camps, real dust, holds the scale |
+| `juggernautXL_ragnarok` | 33.2 s | tent rows; foreground figures too large for a 40 ft eyeline |
+| **`zImageTurbo`** | 54.4 s | **a radial city plan around an open central playa — unprompted** |
+| `qwen_image_2512` | 76.8 s | dense and competent |
+| **`flux1_dev`** | 122.3 s | **an avenue to a vanishing point, hundreds of figures, correct haze** |
+
+Two of the five produce frames that read as a specific real place, and Z-Image
+arrived at the correct city geometry without being told it. At these costs a
+37-frame keyframe set is **20–75 minutes**, so environment coverage is never the
+schedule's constraint.
+
+**Where a generic background comes from is the prompt, not the model.** An
+earlier film's backgrounds came back as a parking lot and a food market; the
+same models given a stated camera height, a named ground material, a density
+value and an era produce Black Rock City. Name the century and its objects —
+bikes, goggles, shade structures, art vehicles — or the model picks its own.
+
+`flux1_dev` treats any individually named person as the subject of a portrait
+and will bring them to the foreground regardless of a stated distance. To keep a
+figure small, **make the crowd the grammatical subject and the person a detail
+inside it**, or render the plate empty and place the figure by reference.

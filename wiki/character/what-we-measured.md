@@ -171,3 +171,47 @@ supports the choice.
 - `look_consistency` has never been shown a render that **keeps the face and
   drops the costume**, which is the failure it is named for. Every population
   measured so far varies both together. (`DECISIONS.md` #31.)
+
+---
+
+## Colour carries her at distance; brightness does not
+
+Measured on `the-man-watches` 2026-08-29. Six costumes rendered into the **same**
+crowd wide with identical framing, then scaled so the figure stands **60 px
+tall** — her real size in most shots of an elevated locked-off film.
+
+| costume | at 60 px |
+|---|---|
+| **bright red scarf, dark clothes** | **found instantly** — the only saturated hue in a dust-gold frame |
+| floor-length black coat | found; reads as a hole in the crowd rather than a person |
+| long pale coat | **gone.** A pale shape among pale shapes |
+| pale tan workwear | gone |
+
+**The result inverts the usual advice.** A brief written before this asked for
+"a long pale coat in a sea of dark clothing" — sound reasoning that does not
+survive contact with a daylight playa, where the crowd is *already* pale and
+dusty. Value cannot separate her because everything is high-value. **Hue can,
+because nothing else in frame has any.**
+
+So for a character who must be findable in wides: **pick the axis the
+environment does not already occupy.** Dark against light where the ground is
+bright; a saturated hue where everything is desaturated; brightness only where
+the world is genuinely dark.
+
+Confirmed to hold at night. The same red reads against six lighting states
+including pure firelight, which was the predicted failure — warm light on a warm
+colour. It does not wash out, so one carrier serves the whole film and no second
+identity cue is needed.
+
+### Test it the way it will be seen
+
+The first version of this test shrank *close-up plates*, which left the figure
+filling a third of the frame and measured nothing. **Put the costume in the
+actual wide, at the actual size, with identical framing across candidates.**
+Anything else compares portraits.
+
+This is the same boundary as the face swap's: below roughly 0.4% of frame the
+detector finds nothing, so identity there is carried by silhouette and colour
+from the prompt, not by the face. Two independent routes to one rule — **in the
+wides she is a shape, in the close shots she is a face** — and they are
+different mechanisms that should not be asked to do each other's work.

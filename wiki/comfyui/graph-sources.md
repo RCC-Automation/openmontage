@@ -95,3 +95,37 @@ parameters alone. Image routes are standalone.
   not (SKILL: "provide a workflow that already contains the LoRA loader
   chain"). WP7 binds `lora_name` through a profile instead, which is enough for
   a graph we own and nothing for a community one.
+
+---
+
+## ComfyUI's own blueprints are drivable from a script
+
+`ComfyUI/blueprints/` holds ~100 official workflows — one per model family,
+including `Image to Video (LTX-2.3)`, `First-Last-Frame to Video (LTX-2.3)`,
+`Image Edit (Flux.2 Klein 4B)` and `Image Edit (Qwen 2511)`. They are the
+authority on how each family wants to be driven.
+
+They ship in **UI format**, which `/prompt` rejects. Normally you open one in the
+browser and use Workflow → Export (API). `scripts/ui_to_api.py` does the same
+headlessly, so a blueprint can be used without a human at the machine.
+
+Two things the conversion has to get right:
+
+**Widget names come from the server.** UI format stores widget values as a
+positional list; the names live in `/object_info`. A `control_after_generate`
+widget — every seed — serialises as *two* entries, so everything after a seed
+shifts by one if the extra slot is not skipped.
+
+**Newer blueprints are subgraphs.** The file contains one node whose `type` is a
+UUID, with the real 40-odd node graph parked in `definitions.subgraphs`.
+Converting the outer file yields an empty graph and a complaint that a UUID
+class is not installed; the flattener replaces the instance with its definition.
+
+Verified 2026-08-29: `Image to Video (LTX-2.3)` converts to 44 nodes, its
+first/last-frame sibling to 32, and `Image Edit (Flux.2 Klein 4B)` to 14.
+
+**Check the model names before running one.** A blueprint names the files its
+author had. `Image to Video (LTX-2.3)` wants an all-in-one
+`ltx-2.3-22b-dev-fp8.safetensors` checkpoint; this machine has the
+transformer-only int8 and a GGUF, which are loaded differently — so that
+blueprint needs its loader section rebuilt, not just its filenames swapped.

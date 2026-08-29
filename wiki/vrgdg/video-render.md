@@ -175,3 +175,64 @@ prober that lists image loaders in numeric order will imply the opposite, and
 feeding them backwards renders the shot in reverse: a working mechanism that
 looks like a broken one, at 13 minutes a look. Read the consuming node's input
 names, never the loader order.
+
+## It was never a deadlock. It was 1,486 seconds per step
+
+**This section replaces two earlier wrong conclusions and is the corrected
+record.** 2026-08-29 it was written here that LTX "deadlocks", first blaming the
+upscale pass, then the Q6_K GGUF loader, then declaring the engine unavailable.
+All three were wrong, and they were wrong for the same reason: **the progress
+bar is not in the log that was being read.**
+
+| log | carries `s/it` progress |
+|---|---|
+| `ComfyUI/user/comfyui.log` (the Python log) | not for these runs |
+| `ComfyUI-Installs/ComfyUI/logs/comfyui.log` (the Desktop wrapper) | **yes** |
+
+Read the wrapper log and the "silence" turns out to be work:
+
+```
+ 0%|      | 0/8 [00:00<?, ?it/s]
+12%|##3   | 1/8 [24:46<2:53:26, 1486.59s/it]
+25%|##5   | 2/8 [49:44<2:29:17, 1492.96s/it]
+```
+
+**~1,490 s/step, against the 26 s/step measured on film 1** - roughly 57x
+slower, for a job at a quarter of the pixels and a quarter of the frames. The
+process was healthy the whole time. A "hang" that is really a pathological
+slowdown looks identical from outside, and the only thing that tells them apart
+is a progress line.
+
+### What made it slow, and what did not
+
+The run that produced those numbers was **not** VRGDG's own graph. It was a
+hand-modified copy, and the modifications are the suspects:
+
+| | shipped `Singlei2vForUI_API.json` | the slow copy |
+|---|---|---|
+| UNet | GGUF, selected through a `ComfySwitchNode` | GGUF wired direct, switch pruned away |
+| int8 branch | present (node 938) and selectable | pruned out |
+| `compute_dtype` | `default` | **`bf16`** |
+| decoder | `VAEDecode` -> replaced with `VAEDecodeTiled` 256 by the generator | plain `VAEDecode` |
+
+Forcing `compute_dtype: bf16` on a file whose whole point is
+`convrot_w4a4 / asym_w4a8_int8 / int8_tensorwise` native ops is the change most
+likely to have thrown it onto an emulated path.
+
+### The path that works, and has 15 clips to prove it
+
+`workflows/vrgdg-i2v-generator/` reads VRGDG's **shipped API workflow**
+(`custom_nodes/comfyui-vrgamedevgirl/Workflows/UsedForUIDoNotTouch/Singlei2vForUI_API.json`,
+74 nodes) and patches scene values into it. It rendered **BurningManGirl scenes
+6-15 unattended, 15 of 15 complete**. That is the reference implementation.
+
+**Do not rebuild an LTX graph from `build_i2v_prompt` and prune it.** Pruning
+removes the switch node and the alternate loader, and the result is a graph that
+is subtly not the one anyone has ever measured. Use the generator.
+
+### The rule this cost a day to learn
+
+**Never diagnose a hang from the absence of output.** Confirm the progress bar
+in the wrapper log first. If a job looks stalled: find the `s/it` figure, and
+only call it a hang when there is no progress line at all after the model has
+loaded and the wrapper log has been checked.
