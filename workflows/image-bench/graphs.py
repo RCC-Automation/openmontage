@@ -256,7 +256,48 @@ def chroma(*, unet: str, prompt: str, negative: str, width: int, height: int,
     }
 
 
-_BUILDERS = {"sdxl": sdxl, "zimage": zimage, "klein": klein, "flux1": flux1, "chroma": chroma}
+def qwen(*, unet: str, prompt: str, negative: str, width: int, height: int,
+         seed: int, steps: int, cfg: float, sampler: str = "euler", scheduler: str = "simple",
+         clip: str = "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+         vae: str = "qwen_image_vae.safetensors",
+         prefix: str = "bench/qwen", **_: Any) -> dict[str, Any]:
+    """Qwen-Image. Core nodes only - no custom pack, no shift node.
+
+    The encoder is Qwen2.5-VL-7B, a full vision-language model rather than a
+    CLIP, which is where the instruction-following comes from and why it costs
+    9.4 GB on its own.
+
+    Two settings are not negotiable on the Lightning build: cfg 1.0, because the
+    distillation is merged into the weights and real CFG both doubles the cost
+    and wrecks the output; and the native 16:9 bucket 1664x928 rather than
+    1280x720, since dropping below the training resolution costs exactly the
+    prompt adherence this model is here to provide.
+    """
+    return {
+        "1": {"class_type": "UNETLoader", "inputs": {"unet_name": unet, "weight_dtype": "default"},
+              "_meta": {"title": "model"}},
+        "2": {"class_type": "CLIPLoader", "inputs": {"clip_name": clip, "type": "qwen_image",
+              "device": "default"}, "_meta": {"title": "encoder"}},
+        "3": {"class_type": "VAELoader", "inputs": {"vae_name": vae}, "_meta": {"title": "vae"}},
+        "4": {"class_type": "CLIPTextEncode", "inputs": {"text": prompt, "clip": ["2", 0]},
+              "_meta": {"title": "positive"}},
+        "5": {"class_type": "CLIPTextEncode", "inputs": {"text": negative, "clip": ["2", 0]},
+              "_meta": {"title": "negative"}},
+        "6": {"class_type": "EmptySD3LatentImage",
+              "inputs": {"width": width, "height": height, "batch_size": 1},
+              "_meta": {"title": "latent"}},
+        "8": {"class_type": "KSampler",
+              "inputs": {"model": ["1", 0], "positive": ["4", 0], "negative": ["5", 0],
+                         "latent_image": ["6", 0], "seed": seed, "steps": steps, "cfg": cfg,
+                         "sampler_name": sampler, "scheduler": scheduler, "denoise": 1.0},
+              "_meta": {"title": "sampler"}},
+        "9": {"class_type": "VAEDecode", "inputs": {"samples": ["8", 0], "vae": ["3", 0]}},
+        "10": _save("9", prefix),
+    }
+
+
+_BUILDERS = {"sdxl": sdxl, "zimage": zimage, "klein": klein, "flux1": flux1,
+             "chroma": chroma, "qwen": qwen}
 
 
 def build(spec: dict[str, Any], **overrides: Any) -> dict[str, Any]:
@@ -334,4 +375,13 @@ MODELS: list[dict[str, Any]] = [
     dict(key="chroma_v30", family="chroma", label="GonzaLomo Chroma v3.0",
          unet="gonzalomoChroma_v30.safetensors", steps=26, cfg=3.5,
          sampler="euler", scheduler="beta", source="card"),
+    # ---- Qwen-Image, 1 -----------------------------------------------------
+    # Added for prompt adherence, not for looks: this pool's measured failure is
+    # subject count and composition, and Qwen's published GenEval Counting is
+    # 0.89 against a text encoder an order of magnitude larger than any other
+    # here. `heavy` because it is ~30 GB resident with its encoder.
+    dict(key="qwen_image_2512", family="qwen", label="Qwen-Image 2512 (Lightning 4-step)",
+         unet="qwen_image_2512_fp8_e4m3fn_scaled_comfyui_4steps_v1.0.safetensors",
+         steps=4, cfg=1.0, sampler="euler", scheduler="simple",
+         source="card", heavy=True, native_size=(1664, 928)),
 ]
