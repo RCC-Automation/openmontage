@@ -400,7 +400,34 @@ class ComfyUIVideo(BaseTool):
 
     def __init__(self) -> None:
         self._client = ComfyUIClient(capability="video")
+        self._default_client = self._client
         self._last_progress_log = 0.0
+
+    def _route(self, inputs: dict[str, Any]) -> str | None:
+        """Point this run at the server the workflow belongs on.
+
+        Two ComfyUI installs share one GPU here and the right one depends on the
+        *engine*, not the capability: Wan runs in WSL, everything else on
+        Windows (`wiki/comfyui/two-platforms.md`). Since 2026-08-30 the Wan
+        weights exist only in WSL, so a Wan workflow sent to the Windows server
+        finds an empty model dropdown and fails with no explanation.
+
+        Returns a note for the caller when the run was rerouted, else None.
+        """
+        from lib.comfy_routing import is_wan, wan_server
+
+        source = inputs.get("workflow_path") or inputs.get("workflow_name") or ""
+        if not source or not is_wan(source):
+            self._client = self._default_client
+            return None
+
+        target = wan_server()
+        if self._client.server_url.rstrip("/") != target.rstrip("/"):
+            self._client = ComfyUIClient(server_url=target)
+        return (
+            f"{Path(str(source)).name} is a Wan workflow, routed to {target}. "
+            "Its weights live only in WSL."
+        )
 
     def _log_progress(self, data: dict) -> None:
         """Print a throttled progress line for long video renders.
@@ -520,6 +547,11 @@ class ComfyUIVideo(BaseTool):
         return 240.0  # ~4 min
 
     def execute(self, inputs: dict[str, Any]) -> ToolResult:
+        routing_note = self._route(inputs)
+        if routing_note:
+            # Say it out loud. A silently rerouted render is the kind of thing
+            # that is impossible to reason about when a result looks wrong.
+            print(f"[comfyui_video] {routing_note}", flush=True)
         vrgdg_build = inputs.get("vrgdg_build") or None
         custom_workflow = bool(
             inputs.get("workflow_json") or inputs.get("workflow_path")

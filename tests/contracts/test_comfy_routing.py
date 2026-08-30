@@ -107,3 +107,33 @@ def test_the_two_servers_are_different():
     """A single URL for both would silently send Wan to Windows, where the
     weights no longer exist."""
     assert windows_server() != wan_server()
+
+
+# --------------------------------------------------------------------------
+# The production tool, not just the library. The routing only protects anything
+# if `comfyui_video` actually consults it - it did not, for the first day the
+# split existed.
+# --------------------------------------------------------------------------
+
+def test_comfyui_video_reroutes_a_wan_workflow():
+    from tools.video.comfyui_video import ComfyUIVideo
+    tool = ComfyUIVideo()
+    note = tool._route({"workflow_path": "tools/_comfyui/workflows/wan22-i2v-4step.json"})
+    assert tool._client.server_url.rstrip("/") == wan_server().rstrip("/")
+    assert note and "Wan workflow" in note
+
+
+def test_comfyui_video_keeps_other_workflows_on_windows():
+    from tools.video.comfyui_video import ComfyUIVideo
+    tool = ComfyUIVideo()
+    tool._route({"workflow_path": "wan22-i2v-4step.json"})          # go to WSL
+    note = tool._route({"workflow_path": "ltx_scene_0005_tiled.json"})  # and back
+    assert tool._client.server_url.rstrip("/") == windows_server().rstrip("/")
+    assert note is None
+
+
+def test_comfyui_video_without_a_workflow_uses_the_default():
+    from tools.video.comfyui_video import ComfyUIVideo
+    tool = ComfyUIVideo()
+    assert tool._route({}) is None
+    assert tool._client is tool._default_client
