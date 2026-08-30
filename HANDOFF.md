@@ -147,6 +147,35 @@ workflow (35 s) and VRGDG `flux_klein` (5 s).
 
 ---
 
+## 5b. Two ComfyUI servers, split by engine — since 2026-08-30
+
+**Wan runs in WSL. Everything else runs on Windows.** Measured, not preference:
+Wan 2.2 I2V is 33% faster warm in WSL (905 s vs 1341 s), LTX is 2.5x faster on
+Windows (293 s vs 744 s), stills 19% faster on Windows.
+
+| | port | engine | start it with |
+|---|---|---|---|
+| Windows | **8188** | LTX, stills, VRGDG bridge, face swap | `scripts/start_comfyui_windows.ps1` |
+| WSL `Ubuntu-24.04` | **8189** | Wan 2.2 / 2.1 only | `scripts/start_comfyui_wsl.sh` |
+
+**The Wan weights exist only in WSL** — 116.5 GiB, deleted from Windows after
+byte verification. A Wan workflow submitted to Windows will find empty model
+dropdowns and say nothing about why.
+
+`lib/comfy_routing.py` picks the server per workflow; use `prepare(workflow, graph)`
+rather than reaching for `COMFYUI_SERVER_URL` directly. It also translates
+Windows paths and model names for WSL, which is not optional — a model name with
+a backslash silently selects a *different* file on Linux.
+
+**Never run both servers at once.** GPU memory is system RAM here (63.6 GiB) and
+an idle WSL holding 41 GiB killed the Windows process mid-load on 2026-08-29.
+`wsl.exe --shutdown` frees WSL's share.
+
+Full numbers, the `--disable-mmap` finding, and the attention-backend dead ends:
+[`wiki/comfyui/two-platforms.md`](wiki/comfyui/two-platforms.md).
+
+---
+
 ## 6. Traps
 
 Each of these cost real time. None are obvious from the code.

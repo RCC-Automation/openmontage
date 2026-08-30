@@ -40,6 +40,8 @@ import json
 import sys
 from pathlib import Path
 
+from lib.machine_paths import comfy_shared_dir
+
 import requests
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -48,7 +50,21 @@ if str(ROOT) not in sys.path:
 
 from tools._comfyui.vrgdg import VRGDGClient  # noqa: E402
 
-VRGDG_OUTPUT = Path(r"C:\Users\Barrul\AppData\Local\Comfy-Desktop\ComfyUI-Shared\output")
+def _shared() -> Path:
+    """The ComfyUI shared tree, discovered rather than hard-coded.
+
+    Set COMFYUI_SHARED_DIR if it lives somewhere unusual on this machine.
+    """
+    d = comfy_shared_dir()
+    if d is None:
+        raise SystemExit(
+            "ComfyUI shared tree not found. Set COMFYUI_SHARED_DIR to the "
+            "directory holding models/, input/ and output/."
+        )
+    return d
+
+
+VRGDG_OUTPUT = _shared() / "output"
 
 
 def describe_knobs(graph: dict) -> list[str]:

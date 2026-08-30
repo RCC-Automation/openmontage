@@ -17,28 +17,28 @@ second pass is where the time and the failures are.
 
 ## The numbers
 
-| | base pass | upscale refine |
+Re-measured 2026-08-29 through the generator's own workflow, reading `s/it` from
+the wrapper log rather than waiting for a file. **Everything below supersedes the
+first pass of measurements on this page.**
+
+| 640x640, scene 5 | steps | s/step | minutes | total |
+|---|---|---|---|---|
+| base pass, refine off | 8 | **13.1** | 1.7 | **4.5 min** |
+| base pass, refine on | 8 | 9.8 | 1.3 | **4.2 min** |
+| latent-upscale refine | 3 | **39.5** | 2.0 | |
+
+**The refine pass costs 4.0x the base pass per step here, and completes in two
+minutes.** An earlier reading of 610 s/step against 26 s/step at 1280x720 gave a
+ratio of 24x; both numbers can be true, because **the ratio is not constant - it
+grows with resolution.** Treat 24x as a 1280x720 figure, not a property of the
+pass.
+
+At 640x640 the refine is cheap enough to leave on. Whether that still holds at
+1280x720 and above is the open question; the way to answer it is to read the
+per-step rate for one clip, not to schedule a batch and hope.
+
+| earlier, 1280x720, 273 frames | 8 steps, 26 s/step - 3 min 23 s | 3 steps, 610 s/step - 30 min |
 |---|---|---|
-| 1280×720, 273 frames | 8 steps, **26 s/step** — 3 min 23 s | 3 steps, **610 s/step** — 30 min 19 s |
-| 1920×1080 | 8 steps, **141 s/step** — 18 min 49 s | never completed (2.5 h, then killed) |
-
-**The refine pass is 24× more expensive per step than the base render.**
-Doubling resolution should cost roughly 4×; 24× is the machine out of headroom.
-Three "refinement" steps cost ten times the entire main render.
-
-At 1920×1080 the second pass has never finished. At 1280×720 it finished once
-in 30 minutes, and on the next scene the process died with a native stack fault
-after it completed — no Python traceback, no video written.
-
-## What to do
-
-**Turn the upscale off.** A scene then costs ~3.5 minutes instead of ~35, and
-stops losing renders to crashes. The output is the base resolution rather than
-an upscaled 2×.
-
-Either clear `upscale_model_name` in the Builder's LTX settings, or set the
-second sigma schedule to `0.0`. In the exported standalone workflow that is
-`--no-upscale`.
 
 ## The final VAE decode is a separate failure
 
@@ -65,10 +65,14 @@ The Builder gives up at two hours; ComfyUI does not. Check the log: a completed
 progress bar followed by hours of silence is a deadlock, and "wait then use
 Recover Scene Videos" will not help because there is nothing to recover.
 
-**A deadlocked job ignores `/interrupt`.** The interrupt flag is only checked
-between node executions, so a job stuck inside one call never sees it. The
-escape hatch is `POST /free {"unload_models": true, "free_memory": true}`,
-which released 19 GB and cleared a job that `/interrupt` alone could not.
+**`/interrupt` works; a very slow node just makes it look otherwise.** Tested
+2026-08-29 on a running 120 s render: interrupted 30 s in, the queue cleared
+**26.4 s later** and the job was recorded as errored. An earlier note here said a
+job "ignores" the interrupt - what was actually observed was a node taking 25
+minutes, so the interrupt was received and simply had no checkpoint to act on
+until that node finished. Interrupt, then allow one step. `POST /free
+{"unload_models": true, "free_memory": true}` remains the harder escape and also
+frees the weights.
 
 **A crash leaves empty scaffolding.** The failed attempts each created an
 `image_to_video_clips_<timestamp>/` folder containing only empty `remake/` and

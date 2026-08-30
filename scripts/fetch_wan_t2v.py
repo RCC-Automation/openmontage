@@ -23,7 +23,24 @@ import sys
 import urllib.request
 from pathlib import Path
 
-SHARED = Path(r"C:\Users\Barrul\AppData\Local\Comfy-Desktop\ComfyUI-Shared\models")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from lib.machine_paths import comfy_shared_dir  # noqa: E402
+
+def _shared() -> Path:
+    """The ComfyUI shared tree, discovered rather than hard-coded.
+
+    Set COMFYUI_SHARED_DIR if it lives somewhere unusual on this machine.
+    """
+    d = comfy_shared_dir()
+    if d is None:
+        raise SystemExit(
+            "ComfyUI shared tree not found. Set COMFYUI_SHARED_DIR to the "
+            "directory holding models/, input/ and output/."
+        )
+    return d
+
+
+SHARED = _shared() / "models"
 BASE = ("https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/"
         "resolve/main/split_files")
 

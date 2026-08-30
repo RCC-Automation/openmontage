@@ -24,6 +24,7 @@ Every page carries a `status`: **measured** (we ran it here, with numbers) ·
 | [comfyui/models.md](comfyui/models.md) | measured | what is installed, what drives what, why filenames lie |
 | [comfyui/image-recipes.md](comfyui/image-recipes.md) | measured | **every image family, its official recipe and what a render costs** |
 | [comfyui/failure-modes.md](comfyui/failure-modes.md) | measured | OOM aborts, silent unavailability, mis-driven checkpoints |
+| [comfyui/two-platforms.md](comfyui/two-platforms.md) | measured | **Wan in WSL, everything else on Windows** — and never both at once |
 
 ## VRGDG — the Builder
 

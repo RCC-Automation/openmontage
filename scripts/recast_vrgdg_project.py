@@ -31,6 +31,8 @@ import sys
 import time
 from pathlib import Path
 
+from lib.machine_paths import comfy_shared_dir
+
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -44,7 +46,21 @@ from tools._comfyui.client import ComfyUIClient  # noqa: E402
 from tools._comfyui.faceswap import OUTPUT_NODE as SWAP_OUT, build_faceswap_graph  # noqa: E402
 from tools._comfyui.vrgdg import VRGDGClient, node_class_types  # noqa: E402
 
-VRGDG_OUTPUT = Path(r"C:\Users\Barrul\AppData\Local\Comfy-Desktop\ComfyUI-Shared\output")
+def _shared() -> Path:
+    """The ComfyUI shared tree, discovered rather than hard-coded.
+
+    Set COMFYUI_SHARED_DIR if it lives somewhere unusual on this machine.
+    """
+    d = comfy_shared_dir()
+    if d is None:
+        raise SystemExit(
+            "ComfyUI shared tree not found. Set COMFYUI_SHARED_DIR to the "
+            "directory holding models/, input/ and output/."
+        )
+    return d
+
+
+VRGDG_OUTPUT = _shared() / "output"
 
 #: The outgoing character, as the prompts describe her. Matched case-insensitively
 #: and tolerant of the small wording drifts between scenes.

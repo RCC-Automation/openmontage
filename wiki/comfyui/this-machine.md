@@ -135,7 +135,7 @@ budget:
 |---|---|
 | `/system_stats` reports | `vram_total` 87.9 GiB |
 | **actual system RAM** | **63.6 GiB** |
-| ComfyUI's launch args | include **`--disable-mmap`** — every load is a full read into RAM |
+| ComfyUI's launch args | included `--disable-mmap` until 2026-08-30 — every load was a full read into RAM. **Removed and measured: 4x faster cold load, 6 GiB less peak, no downside. Leave it off** ([two-platforms](two-platforms.md)) |
 | fp8 weights | are **upcast to bf16** in memory: `supports_fp8_compute()` is `False` on gfx1151 |
 
 So an 8.9 GB fp8 file occupies ~17.8 GB, and nothing is memory-mapped. On
@@ -167,3 +167,28 @@ the port, not the window.
 - Whether diffusion training is viable here at all, and with which trainer and
   optimizer — see [character/lora-training](../character/lora-training.md).
 - Whether WSL2 or a dual-boot Linux would materially change the answer.
+
+---
+
+## Attention backends: there is nothing to tune
+
+Measured 2026-08-30 after AMD's [ComfyUI FA backends
+post](https://rocm.blogs.amd.com/software-tools-optimization/comfyui-fa-backends/README.html)
+reported **+50% on Strix Halo** from backend choice. None of it is reachable on
+gfx1151:
+
+| lever | status here |
+|---|---|
+| **CK Tile** (`TORCH_ROCM_FA_PREFER_CK=1`) | **refused on both platforms** — PyTorch reports `architecture supported for CK: 0` |
+| **flash-attn** (`--use-flash-attention`) | no wheel for gfx1151 anywhere; ComfyUI hard-imports the package, so the flag fails at startup |
+| **SageAttention** | AMD measured **-34% to -36%** on this hardware; ComfyUI's bundled one is NVIDIA-only by its own docstring |
+| split / quad attention | memory-saving, 15-30% *slower* |
+| **AOTriton** | **what both installs already use** |
+
+Installing `triton-windows` makes comfy_kitchen's Triton backend *available* but
+nothing routes to it, and it changed a render by 4% - inside noise. The ROCm
+Triton in the WSL torch bundle is real, but SageAttention is the only thing that
+would consume it and AMD's own numbers say not to.
+
+**We are already on the fastest backend this chip can use.** That is a finding,
+not a gap: no configuration is leaving performance unclaimed.

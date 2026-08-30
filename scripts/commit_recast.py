@@ -35,13 +35,29 @@ import shutil
 import sys
 from pathlib import Path
 
+from lib.machine_paths import comfy_shared_dir
+
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from scripts.recast_vrgdg_project import recast_prompt  # noqa: E402
 
-VRGDG_OUTPUT = Path(r"C:\Users\Barrul\AppData\Local\Comfy-Desktop\ComfyUI-Shared\output")
+def _shared() -> Path:
+    """The ComfyUI shared tree, discovered rather than hard-coded.
+
+    Set COMFYUI_SHARED_DIR if it lives somewhere unusual on this machine.
+    """
+    d = comfy_shared_dir()
+    if d is None:
+        raise SystemExit(
+            "ComfyUI shared tree not found. Set COMFYUI_SHARED_DIR to the "
+            "directory holding models/, input/ and output/."
+        )
+    return d
+
+
+VRGDG_OUTPUT = _shared() / "output"
 
 #: Every per-scene field that carries the character. Found by scanning the
 #: session rather than assumed - see the module docstring.

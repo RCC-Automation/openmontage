@@ -28,6 +28,8 @@ import sys
 import time
 from pathlib import Path
 
+from lib.machine_paths import comfy_shared_dir
+
 import requests
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -41,7 +43,21 @@ from tools._comfyui.lora_train import (  # noqa: E402
     build_sdxl_lora_train_graph,
 )
 
-SHARED = Path(r"C:\Users\Barrul\AppData\Local\Comfy-Desktop\ComfyUI-Shared")
+def _shared() -> Path:
+    """The ComfyUI shared tree, discovered rather than hard-coded.
+
+    Set COMFYUI_SHARED_DIR if it lives somewhere unusual on this machine.
+    """
+    d = comfy_shared_dir()
+    if d is None:
+        raise SystemExit(
+            "ComfyUI shared tree not found. Set COMFYUI_SHARED_DIR to the "
+            "directory holding models/, input/ and output/."
+        )
+    return d
+
+
+SHARED = _shared()
 LORAS = SHARED / "models" / "loras"
 #: `SaveLoRA`'s prefix is relative to the OUTPUT directory, not the models tree
 #: - "loras/character/x" lands in output/loras/character/. It has to be copied

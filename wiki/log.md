@@ -57,3 +57,5 @@ Format: `## [YYYY-MM-DD] <op> | <what> | <note>`
 ## [2026-08-29] compile | comfyui/image-recipes | Qwen-Image 2512 as a sixth family, 24.2 s warm at 1664x928; and the cfg-1.0 consequence - 10 of 19 models have no working negative prompt
 ## [2026-08-29] measure | vrgdg/routes | Krea-2 and ERNIE rendered for the first time: 129.6 s / 422.1 s / 78.8 s against Z-Image standalone at 14.1 s. Builder-native, worth having, not worth a render loop
 ## [2026-08-29] compile | vrgdg/routes | stub filled: the three route classes, the seven image routes, and the three-alias chain Krea-2 needed before it would build
+- 2026-08-30 compile: comfyui/two-platforms.md - the engine split measured across three workloads, the mmap flag, and the both-at-once crash
+- 2026-08-30 compile: comfyui/two-platforms.md - Wan weights moved to WSL only (116.5 GiB), routing in lib/comfy_routing.py, launcher scripts
