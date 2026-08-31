@@ -588,15 +588,17 @@ said why. MSR is *Multiple Subject Reference*; the source is
 and V2 are now on disk, byte-verified, and **added to the installer manifest**
 so the gap cannot reappear. The installer now tracks 14 files, all `[have]`.
 
-Opt-in groups not fetched: `krea2`, `ernie`, `minimax` (~40 GB).
+Opt-in groups: `krea2` and `ernie` **fetched and rendered 2026-08-29** (~42 GB).
+`minimax` still not fetched, and one of its two weight files was a failed download.
 
-**Build routes verified rendering:** `zimage`, `flux_klein`, plus the bundled
-SDXL workflow (not a VRGDG route).
+**Build routes verified rendering:** `zimage`, `flux_klein`, `krea2`,
+`krea2_2pass`, `ernie_image`, plus the bundled SDXL workflow (not a VRGDG
+route). Timings and the verdict on the last three: `wiki/vrgdg/routes.md`.
 **Unblocked, not yet run:** every LTX route (`i2v`, `t2v`, `flf`, `rtv`,
 `ingredients`, `id_lora`) and `z_upscale_enhance`. The weights are present; what
 remains is selecting them once in the Builder so they land in
 `VRGDG_Model_Defaults`, which is what the client reads.
-**Blocked on opt-in groups:** `krea2`, `krea2_2pass`, `ernie_image`, `minimax_h3`.
+**Blocked on opt-in groups:** `minimax_h3` only.
 
 ---
 
@@ -631,6 +633,53 @@ closure of the real video output before writing. This removes six unreachable
 `RAMCleanup` / `VRAMCleanup` nodes that made ComfyUI reject every generated file
 when the optional cleanup pack was absent. The verifier now rejects those nodes
 and any dangling node reference.
+
+---
+
+## The image bench — every model, driven right and measured
+
+`workflows/image-bench/` — committed 2026-08-28/29, pushed. A standalone API
+graph per family, each loadable in the ComfyUI UI *and* drivable by
+`comfyui_image` through a binding profile, from the same file.
+
+| File | |
+|---|---|
+| `graphs.py` | six family builders + the 19-model pool, each with the recipe it wants **and where that recipe came from** |
+| `run_bench.py` | resume, heavy-model flushing, per-cell seed variation |
+| `run_character.py` | scores every render by ArcFace against an anchor, gated on face fraction; `--framing closeup / fullbody` |
+| `enhance.py`, `faceid.py`, `controlnet_test.py`, `pose_test.py`, `sheets.py`, `character_sheets.py` | |
+| `lib/shot_size.py`, `lib/text_render.py` | new measurement axes |
+
+**Flux.1, Chroma and the FluxDAIO now run** — nothing was missing but a graph.
+Both Z-Image GGUFs do not load at all. Qwen-Image 2512 added as a sixth family.
+
+**What it measured** (full detail in `wiki/comfyui/image-recipes.md` and
+`wiki/character/choosing-a-mechanism.md`):
+
+- Klein distilled 10.6 s, Z-Image standalone 14.1 s, Qwen 24.2 s at 1664×928,
+  flux1-dev 52.6 s, Chroma 226 s.
+- **No model renders a character from its description** — best 0.418 against a
+  ~0.70 threshold, and Qwen came eighth. The ceiling is text-to-image, not this
+  pool.
+- Identity hierarchy: face swap 0.77-0.79 → Klein reference 0.72 → FaceID
+  0.62-0.70 → trained LoRA 0.36-0.39.
+- **The bystander problem is a prompting failure.** Crowd terms in the negative
+  fix it 3-for-3, free; ControlNet and pose control do not. `DECISIONS.md` #42.
+- Ten of nineteen models run at cfg 1.0 and have no working negative prompt.
+
+Downloaded and wired this session: both ControlNets, SDPose + RT-DETR, a Klein
+LoRA, Qwen-Image, Krea-2, ERNIE. `controlnet/`, `model_patches/` and
+`loras/flux2-klein/` are no longer empty.
+
+**Two corrections to this session's own claims are recorded** rather than
+quietly dropped: the CLIP-skip finding (ComfyUI's SDXL default already equals
+-2; the "black frame" bug was mine) and the ControlNet recommendation.
+
+**One defect to know about:** commit `95fa1c6` used `git add -A` and swept ~540
+lines of a parallel session's work into a message that does not describe it —
+`scripts/ui_to_api.py`, `scripts/fetch_wan_t2v.py`,
+`wiki/vrgdg/scene-generation.md`, `wiki/comfyui/graph-sources.md`. Already
+pushed, so left alone; the content is correct, only the attribution is wrong.
 
 ---
 
