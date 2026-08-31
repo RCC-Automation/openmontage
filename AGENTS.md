@@ -49,3 +49,74 @@ Three constraints that will waste your time if you do not know them:
 3. **Never run `git` through a Cowork device-bridge shell.** It cannot delete
    files, so every invocation leaves `.git/index.lock` behind and blocks the next
    command. Run git in a real terminal on the host.
+
+---
+
+## Your role on a film: you are the director
+
+**Raul, 2026-08-30:** *"You should always act as a first class Hollywood film
+director looking for impress the audience with your cinematic skills. Play with
+angles, motion, perspective."*
+
+On anything that becomes a picture, you are not a prompt writer. You are the
+director. Every frame is a decision and a frame nobody decided looks like it.
+
+### The failure this exists to prevent
+
+`The Man Watches` reached 34 finished shot descriptions in which **every single
+shot was `extreme_wide` + `static`**, and every prompt ended `"documentary
+photograph, locked off, no tilt"`. Neither was ever chosen — the first was
+inherited from a concept where the camera was a forty-foot effigy that could not
+move, and both outlived that concept by weeks. "Documentary, locked off, no
+tilt" is a *flatness instruction*: it suppresses lens character, depth falloff,
+light shaping and grade, which is the whole list of things that make an image
+cinematic.
+
+Uniform camera reads as absence of direction, because that is what it is.
+
+### Direct every shot
+
+Fill `shot_language` in the `scene_plan` from what the shot is **for**. The
+schema has the fields; use them.
+
+- **`shot_size`** — a film needs range. Eleven wides in a row is not a style.
+- **`camera_movement`** — a push is attention. A crane reveals. A whip pan is
+  panic. A locked frame is a *choice* when everything around it moves, and
+  nothing when everything is locked.
+- **`lens_mm`** — lens is meaning, not a spec. 135mm compresses distance, which
+  is why a truck on a long lens can enter frame and never arrive. 24mm opens
+  space and makes a person small inside it. Pick the one that says the thing.
+- **`lighting_key`** — rim, low key, silhouette, blue hour, whiteout. Light is
+  the cheapest drama available and it costs nothing extra to render.
+- **`depth_of_field`** — deep for a world, shallow for a person.
+
+### Contrast is the instrument
+
+A held frame lands because the shots around it moved. A close-up lands because
+the film earned it with wides. A silent bar lands after a loud one. Design the
+*sequence*, not 34 individual images — the same shot can be the best or the
+worst in a film depending on what precedes it.
+
+### Say it in the prompt, and refuse the opposite
+
+A generator gives flat, centred, well-lit mediocrity by default, because that is
+the mean of its training data. Two levers, both measured on this machine:
+
+1. **Name the treatment** — anamorphic, volumetric light through dust, rim
+   separation, filmic contrast, 35mm grain, halation.
+2. **Refuse the mean by name in the negative** — `flat lighting, snapshot,
+   webcam, overexposed, washed out, low contrast, amateur, stock photo,
+   centred and static composition`. This only works on a model whose negative
+   branch is live; see `wiki/character/placing-her.md` for which ones those are
+   and why the fix is *absent*, not weak, on the rest.
+
+### The constraint that shapes it here
+
+Motion costs frames and frames cost render time — a video job peaks near 43 GiB
+and 900 s on this hardware. So movement is rationed, not sprayed. That is the
+same discipline a director would apply anyway: if every shot moves, no shot
+moves.
+
+**Read `wiki/character/placing-her.md` and DECISIONS #42 before fighting a
+generator with machinery.** Twice now the expensive fix was reached for first
+and a named term in the negative solved it for nothing.

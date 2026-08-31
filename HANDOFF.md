@@ -167,9 +167,17 @@ rather than reaching for `COMFYUI_SERVER_URL` directly. It also translates
 Windows paths and model names for WSL, which is not optional — a model name with
 a backslash silently selects a *different* file on Linux.
 
-**Never run both servers at once.** GPU memory is system RAM here (63.6 GiB) and
-an idle WSL holding 41 GiB killed the Windows process mid-load on 2026-08-29.
-`wsl.exe --shutdown` frees WSL's share.
+**Both servers may run at once** (Raul, 2026-08-30) — watch memory, not process
+count. GPU memory is system RAM here (63.6 GiB), and on 2026-08-29 an idle WSL
+holding 41 GiB killed the Windows process mid-load. That was residency, not
+co-existence: two idle servers cost nothing, and a WSL *image* job (8.2 GiB peak)
+next to a Windows *video* job (42.6 GiB) fits. **Two video jobs never will** —
+43.7 + 42.6 against 63.6.
+
+`lib.comfy_routing.assert_headroom()` checks the measured free number before a
+load. When memory is tight, POST to the idle server's `/free` first — but note it
+releases 14.6 GiB on Windows and only 0.8 GiB in WSL, so "I freed it" is not
+sufficient on the WSL side; `wsl.exe --shutdown` is what actually reclaims it.
 
 Full numbers, the `--disable-mmap` finding, and the attention-backend dead ends:
 [`wiki/comfyui/two-platforms.md`](wiki/comfyui/two-platforms.md).
@@ -177,6 +185,55 @@ Full numbers, the `--disable-mmap` finding, and the attention-backend dead ends:
 ---
 
 ## 6. Traps
+
+
+### WSL had no memory cap, and that starved Windows
+
+`.wslconfig` said `memory=96GB` on a 63.6 GiB machine. Fixed 2026-08-31 to
+`memory=48GB` + `autoMemoryReclaim=gradual`; Windows went from 1.7 GiB available
+to 45.5. **Never set `memory` above physical RAM.** On WSL 2.7, `sparseVhd`
+belongs in `[experimental]` and `pageReporting` is not a valid key — both are
+rejected with a `wsl: Unknown key` warning that is easy to miss. Confirm the cap
+bound with `free -g` inside WSL. Full detail: `wiki/comfyui/wsl-memory.md`.
+
+### A ComfyUI started with plain `nohup ... &` from `wsl.exe` dies immediately
+
+It leaves no log, which reads as "it never started". Use `setsid ... & disown`.
+
+### `LoadImage` takes a NAME, not a path
+
+Handing it an absolute path fails with `Invalid image file` even though the file
+is fine. `VHS_LoadImagePath` is the node that accepts paths. Upload first with
+`lib.comfy_routing.upload_image` — which also sidesteps the WSL mount entirely.
+
+### `SaveVideo` reports its output under `images`, not `videos`
+
+With `animated: true` alongside. A collector checking only `videos`/`gifs` will
+call a successful render missing.
+
+### A prompt id truncated to 8 characters matches nothing
+
+`/history/<8 chars>` never resolves, so a finished render reads as still-running
+forever. `collect_render.py` now resolves a prefix on **every** poll — resolving
+once at the start fails for the normal case, because a running prompt is not in
+`/history` yet.
+
+### Two tools writing the Builder session will silently revert each other
+
+Beat-snapped timings were written and then reverted by a later tool holding a
+stale copy; the timeline still looked complete. Run `scripts/audit_timing.py`
+after anything touches the session.
+
+### Git Bash rewrites POSIX arguments into Windows paths
+
+`--folder /home/barrul/...` arrived as `C:/Program Files/Git/home/barrul/...`.
+Prefix the command with `MSYS_NO_PATHCONV=1`.
+
+### Heredocs eat backslash escapes
+
+`\n`, `\r\n` and regex escapes passed through a shell heredoc arrive mangled,
+producing unterminated string literals. It happened seven times in one session.
+**Write patcher scripts to a file with the Write tool instead.**
 
 Each of these cost real time. None are obvious from the code.
 

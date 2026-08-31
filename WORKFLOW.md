@@ -46,7 +46,9 @@ because they were planned that way — not nudged into place afterwards.
 - *The machine narrows, you pick.* Scores and flags are input to your decision,
   never the decision.
 - *Nothing runs unseen.* Every step stops at a checkpoint you approve or send
-  back, and records what it chose and why.
+  back, and records what it chose and why — see
+  [How every step ends](#how-every-step-ends--the-checkpoint). Skipping the
+  gate is a hard error, not a habit.
 
 **To start anything, just say it in words** — "let's cast the character",
 "show me other looks for scene 2", "export it". The agent reads the pipeline,
@@ -62,6 +64,105 @@ runs the step's skill, and stops at the gate.
 | Models | `Install-VRGDGModels.ps1 -Preview` shows all 14 `[have]` |
 | Project | `python -m backlot open <project-id>` to watch it happen |
 | GPU | one job at a time — a casting round and a render cannot share it |
+
+---
+
+## How every step ends — the checkpoint
+
+**This is the way to work. It is not optional, and it is not paperwork.**
+
+A step is not finished when the files exist. It is finished when a *checkpoint*
+records that it finished — which stage, what it produced, whether you approved
+it, and what it left unresolved. Artifacts on disk prove work happened. Only a
+checkpoint proves it was **approved**, and only a checkpoint tells a session
+opening this project cold what to do next.
+
+```bash
+# what state is the film in?
+.venv/Scripts/python.exe scripts/checkpoint.py --project <id> --list
+
+# a step produced something; show it and stop
+.venv/Scripts/python.exe scripts/checkpoint.py --project <id> --stage score     --status awaiting_human --note "what it produced" --open "what it did not settle"
+
+# you approved it
+.venv/Scripts/python.exe scripts/checkpoint.py --project <id> --stage score     --status completed --approved
+```
+
+Run it with **the repo venv** — writing a checkpoint validates every artifact
+against its schema, which needs `jsonschema`.
+
+### The protocol, in order
+
+1. The agent runs the step and writes the artifact to `artifacts/<name>.json`.
+2. The agent writes `--status awaiting_human`, shows you what it made, **and
+   stops**.
+3. You approve, or you send it back.
+4. Only then does the agent write `--status completed --approved`.
+
+Step 4 before step 3 is a **hard error**, not a convention:
+
+```
+GATE VIOLATION: stage 'brief' requires human approval
+(human_approval_default: true in the 'vrgdg-character-film' manifest)
+but status='completed' was written without human_approved=True.
+```
+
+So is running a step whose predecessors are not finished and approved:
+
+```
+PREREQUISITE VIOLATION: stage 'score' cannot advance;
+incomplete or missing: ['brief', 'casting'].
+```
+
+Which stages gate is declared per stage in the pipeline manifest
+(`human_approval_default`), never decided by the agent.
+
+### What this buys, concretely
+
+| | Without a checkpoint | With one |
+|---|---|---|
+| **Resume** | `get_next_stage()` always answers `brief`, however much of the film is made. What is done lives in prose a new session must read and believe. | The session asks the project and gets an answer. |
+| **Gate** | Exporting a half-picked film to the Builder is something we *remember* not to do. | It is refused. |
+| **Send back** | Dailies finds shot 22 drifted and there is nothing to reopen — only redoing it by hand. | The superseded checkpoint is copied to `history/`; the stage reopens with its record intact. |
+
+### Carry the unresolved things forward
+
+`--open` is how something unsettled survives the step that found it. It is
+recorded *in the checkpoint*, so it travels with the film and appears on the
+status page under **Carried forward**, instead of living in a chat transcript
+that the next session will not read.
+
+Use it for anything true and unfinished: a success criterion the stage did not
+meet, a plan the work overturned, a number nobody measured. An honest `--open`
+is worth more than a clean-looking `completed`.
+
+---
+
+## Your status page — one HTML per film
+
+Every project carries **`projects/<id>/status.html`** — the film's live state as
+one page you can read on a phone: the ten stages, the track with its measured
+sections, the plates you picked, all the shots, the render clock, the clips.
+
+```bash
+python scripts/project_page.py --project <id>
+```
+
+It is **generated, never written**. Every number, image and stage state is read
+off the project on disk at the moment it runs, so it cannot drift — there is
+nowhere for it to keep a stale copy. `scripts/checkpoint.py` regenerates it on
+every write, so it stays current without anyone remembering.
+
+Two readings sit side by side on it and are never merged:
+
+- **Checkpoint** — what the governance record says.
+- **Evidence** — what is actually on disk.
+
+When they disagree, that *is* the finding: a stage that ran outside the
+pipeline, or a checkpoint written for work that never landed.
+
+Publish it once as an Artifact and republish the same file path afterwards; the
+URL stays put, so the link you hold is always the current state of the film.
 
 ---
 
@@ -192,9 +293,26 @@ to 0.55 and back to pink hair.
 **Change it:** edit a scene, reorder, add or drop one, change a shot size.
 Shot sizes should match the shot families your cast record has references for.
 
+**Retime it against the delivered track — always.** The shot list is written
+before the song exists, so its times are placeholders. `retime_plan.py` maps
+each shot-list section onto the song's *measured* boundaries, keeps the relative
+durations inside a section, and writes `artifacts/scene_plan.json`:
+
+```bash
+python scripts/retime_plan.py --project <id> --dry-run   # look first
+python scripts/retime_plan.py --project <id>
+```
+
+It runs two gates and reports rather than edits, because the fix is yours:
+
+- **Too short** — nothing under 1.5 s. Below that a shot is a flicker, not an
+  image. Three shots in the first film were invisible for exactly this reason.
+- **Too long** — anything longer than the longest clip this machine has actually
+  rendered (5.06 s) needs more frames, and render cost scales with frames.
+
 **Status:** scene-director skills exist for other pipelines; the VRGDG-aware
-one is **not yet written**. Today the agent writes the plan directly and
-validates it against the schema.
+one is **not yet written**. Today the agent writes the plan directly, retimes it
+with `retime_plan.py`, and validates it against the schema.
 
 ---
 
@@ -367,7 +485,7 @@ machinery sits behind each.
 | 1 Brief | written | conversational; nothing else needed |
 | 2 Casting | written | instrument built + calibrated; **the loop has not been run through the skill yet** |
 | 3 Score | written | **tools built and proven live** — generate, measure, align; loop not yet run |
-| 4 Scene plan | written | schema-validated; beat-aware timing not yet exercised |
+| 4 Scene plan | written | schema-validated; **`retime_plan.py` built and run live** — sections mapped onto the measured track, both length gates reporting |
 | 5 Scene look | written | **the loop itself is not built** — same instrument as casting, not yet pointed at scenes |
 | 6 Export | written | **built, verified live** — cast, references, stills, prompts, audio, lyrics |
 | 7 Render | written | the Builder; nothing for us to build |

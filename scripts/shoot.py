@@ -10,14 +10,15 @@ The problem this exists for
 
 A film here needs both engines. LTX renders the ambient shots on **Windows**;
 Wan renders the ones that need authored motion, and Wan lives in **WSL** because
-that is 33% faster and where its weights now are. And the two servers **cannot
-run at the same time**: GPU memory is system RAM (63.6 GiB) and an idle second
-instance holding 41 GiB crashed the first one mid-load
+that is 33% faster and where its weights now are. Both servers may run at once, but **two video renders cannot**: GPU memory is
+system RAM (63.6 GiB) and a video job peaks near 43 GiB on either platform, so
+two will not fit however the processes are arranged
 (`wiki/comfyui/two-platforms.md`).
 
-So a shoot is not one queue. It is **one pass per platform**, with the other
-server stopped, and a switch in between. Doing that by hand across 37 shots is
-how a batch ends up half-rendered with nobody sure which half.
+So a shoot is still **one pass per platform**, and what gates each pass is
+measured free memory rather than whether the other server exists. Doing that by
+hand across 37 shots is how a batch ends up half-rendered with nobody sure
+which half.
 
 What this does
 --------------
@@ -27,9 +28,9 @@ only that server running, and records every result as it lands. Re-running skips
 what already exists, so an interrupted shoot resumes instead of restarting - and
 an hour-long video batch *will* be interrupted.
 
-It refuses to render while the wrong server is up rather than trying to stop it:
-shutting down someone's ComfyUI unasked is not this script's business, and the
-crash it prevents is worse than the inconvenience.
+It refuses rather than freeing or stopping anything itself: dropping someone's
+loaded models unasked is not this script's business, and it says which endpoint
+to call instead.
 
 The plan file
 -------------
@@ -55,7 +56,9 @@ import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from lib.comfy_routing import is_wan, wan_server, which_platform, windows_server  # noqa: E402
+from lib.comfy_routing import (  # noqa: E402
+    free_gib, is_wan, PEAK_GIB, wan_server, which_platform, windows_server,
+)
 from lib.machine_paths import project_dir  # noqa: E402
 
 #: Which platform each engine needs. An engine absent here is assumed to be a
@@ -96,27 +99,36 @@ def server_up(url: str) -> bool:
         return False
 
 
-def check_exclusive(platform: str) -> str | None:
-    """None when it is safe to render, else why it is not."""
+def check_capacity(platform: str) -> str | None:
+    """None when it is safe to render, else why it is not.
+
+    Both servers are allowed to run (Raul, 2026-08-30). What is checked is
+    memory: a video job on either platform peaked around 43 GiB when it was
+    measured, and GPU memory here is system RAM, so two of them at once cannot
+    fit in 63.6 GiB however the processes are arranged. The old rule refused on
+    server count, which blocked the many combinations that do fit.
+    """
     want = server_for_platform(platform)
-    other = server_for_platform("wsl" if platform == "windows" else "windows")
 
     if not server_up(want):
         how = ("scripts/start_comfyui_wsl.sh" if platform == "wsl"
                else "scripts/start_comfyui_windows.ps1")
         return f"the {platform} server at {want} is not running - start it with {how}"
 
-    if server_up(other):
-        stop = ("wsl.exe --shutdown" if platform == "windows"
-                else "stop the Windows ComfyUI")
-        return (f"both servers are up. Running both has crashed the backend "
-                f"mid-load - GPU memory here is system RAM. Stop the other one "
-                f"first: {stop}")
-
     seen = which_platform(want)
     if seen not in (platform, "unknown"):
         return (f"{want} reports itself as {seen}, not {platform}. Comfy Desktop "
                 "reassigns ports; check which server is really there.")
+
+    need = PEAK_GIB[("video", platform)]
+    free = free_gib()
+    if free is not None and free < need + 4.0:
+        other = server_for_platform("wsl" if platform == "windows" else "windows")
+        hint = (f" The other server at {other} is up - POST to its /free endpoint "
+                "to drop its models without stopping it."
+                if server_up(other) else " Close what else is resident.")
+        return (f"only {free} GiB free; a video render on {platform} peaked at "
+                f"{need} GiB when measured.{hint}")
     return None
 
 
@@ -214,7 +226,7 @@ def main() -> int:
             continue
 
         print(f"\n=== {platform} pass: {len(group)} shot(s) ===")
-        problem = check_exclusive(platform)
+        problem = check_capacity(platform)
         if problem:
             print(f"  SKIPPED - {problem}")
             continue

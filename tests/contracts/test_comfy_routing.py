@@ -137,3 +137,58 @@ def test_comfyui_video_without_a_workflow_uses_the_default():
     tool = ComfyUIVideo()
     assert tool._route({}) is None
     assert tool._client is tool._default_client
+
+
+class TestHeadroom:
+    """The memory guard that replaced 'never run both servers' on 2026-08-30.
+
+    The old rule counted processes, which is a proxy: it forbade an image job
+    beside a video job (which fits) and would have permitted nothing useful that
+    the real constraint does not already allow. These pin the shape of the
+    replacement, because the failure it prevents is a backend crash mid-load and
+    it is not the kind of thing anyone notices until it happens.
+    """
+
+    def test_peaks_are_the_measured_ones(self):
+        from lib.comfy_routing import PEAK_GIB
+        # From scene_look/bench-suite/, three runs each. If these move, the
+        # benchmark moved, and the guard is calibrated against nothing.
+        assert PEAK_GIB[("video", "wsl")] == 43.7
+        assert PEAK_GIB[("video", "windows")] == 42.6
+        assert PEAK_GIB[("image", "windows")] == 27.7
+        assert PEAK_GIB[("image", "wsl")] == 8.3
+
+    def test_two_video_jobs_cannot_fit(self):
+        from lib.comfy_routing import PEAK_GIB
+        assert PEAK_GIB[("video", "wsl")] + PEAK_GIB[("video", "windows")] > 63.6
+
+    def test_an_image_job_fits_beside_a_video_job(self):
+        """The case the old rule wrongly refused."""
+        from lib.comfy_routing import PEAK_GIB
+        assert PEAK_GIB[("image", "wsl")] + PEAK_GIB[("video", "windows")] < 63.6
+
+    def test_refuses_when_memory_is_short(self, monkeypatch):
+        import lib.comfy_routing as cr
+        monkeypatch.setattr(cr, "free_gib", lambda: 10.0)
+        with pytest.raises(RuntimeError, match="10.0 GiB free"):
+            cr.assert_headroom(cr.wan_server(), "video")
+
+    def test_allows_when_memory_is_ample(self, monkeypatch):
+        import lib.comfy_routing as cr
+        monkeypatch.setattr(cr, "free_gib", lambda: 60.0)
+        cr.assert_headroom(cr.wan_server(), "video")
+
+    def test_allows_when_the_number_cannot_be_read(self, monkeypatch):
+        """A guard that guesses is worse than no guard: if free memory is
+        unreadable it must let the job through rather than block on a fiction."""
+        import lib.comfy_routing as cr
+        monkeypatch.setattr(cr, "free_gib", lambda: None)
+        cr.assert_headroom(cr.wan_server(), "video")
+
+    def test_an_image_job_is_judged_on_the_image_peak(self, monkeypatch):
+        """35 GiB free is short for video on WSL and ample for an image."""
+        import lib.comfy_routing as cr
+        monkeypatch.setattr(cr, "free_gib", lambda: 35.0)
+        cr.assert_headroom(cr.wan_server(), "image")
+        with pytest.raises(RuntimeError):
+            cr.assert_headroom(cr.wan_server(), "video")

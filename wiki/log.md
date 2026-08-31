@@ -59,3 +59,10 @@ Format: `## [YYYY-MM-DD] <op> | <what> | <note>`
 ## [2026-08-29] compile | vrgdg/routes | stub filled: the three route classes, the seven image routes, and the three-alias chain Krea-2 needed before it would build
 - 2026-08-30 compile: comfyui/two-platforms.md - the engine split measured across three workloads, the mmap flag, and the both-at-once crash
 - 2026-08-30 compile: comfyui/two-platforms.md - Wan weights moved to WSL only (116.5 GiB), routing in lib/comfy_routing.py, launcher scripts
+## [2026-08-30] compile | practice/checkpoints | gates run live on the-man-watches, DECISIONS #43
+## [2026-08-30] compile | character/placing-her | 10 renders, the negative prompt wins again (DECISIONS #42)
+## [2026-08-31] compile | practice/directing-the-generator | the word-ratio mechanism, 4 failures, 2 levers
+## [2026-08-31] compile | comfyui/wsl-memory | memory=96GB on 63.6 GiB; 26.5 GiB reclaimed
+## [2026-08-31] compile | practice/cutting-to-the-song | beat snap 12->29 of 33; true-length clips 11% cheaper
+## [2026-08-31] compile | practice/directing-the-generator | word-ratio mechanism, 4 failures, 2 levers
+## [2026-08-31] compile | character/placing-her | live negative puts her at 57 px; 6 of 19 models have one

@@ -24,7 +24,8 @@ Every page carries a `status`: **measured** (we ran it here, with numbers) ·
 | [comfyui/models.md](comfyui/models.md) | measured | what is installed, what drives what, why filenames lie |
 | [comfyui/image-recipes.md](comfyui/image-recipes.md) | measured | **every image family, its official recipe and what a render costs** |
 | [comfyui/failure-modes.md](comfyui/failure-modes.md) | measured | OOM aborts, silent unavailability, mis-driven checkpoints |
-| [comfyui/two-platforms.md](comfyui/two-platforms.md) | measured | **Wan in WSL, everything else on Windows** — and never both at once |
+| [comfyui/two-platforms.md](comfyui/two-platforms.md) | measured | **Wan in WSL, everything else on Windows** — and the memory budget that decides what can run beside what |
+| [comfyui/wsl-memory.md](comfyui/wsl-memory.md) | measured | **memory=96GB on a 63.6 GiB machine** — the config error that starved Windows, and the one that fixes it |
 
 ## VRGDG — the Builder
 
@@ -54,6 +55,7 @@ Every page carries a `status`: **measured** (we ran it here, with numbers) ·
 |---|---|---|
 | [character/the-problem.md](character/the-problem.md) | stub | why this is the hard part, stated precisely |
 | [character/what-we-measured.md](character/what-we-measured.md) | measured | seed vs description, reference per shot family, the numbers |
+| [character/placing-her.md](character/placing-her.md) | measured | **a named character is always the subject** — and the one thing that makes her 57 px instead |
 | [character/measuring-identity.md](character/measuring-identity.md) | measured | ArcFace and CLIP, what each sees, calibrated bands |
 | [character/techniques.md](character/techniques.md) | researched | the ranked survey — what to do, in order |
 | [character/lora-training.md](character/lora-training.md) | measured | **it trains: 2.49 s/step, gate 0.22 → 0.43** — trainers, dataset, hyperparameters |
@@ -77,6 +79,9 @@ Every page carries a `status`: **measured** (we ran it here, with numbers) ·
 | [practice/recasting.md](practice/recasting.md) | measured | replacing the character in a finished project — 7 prompt fields, not one |
 | [practice/image-benchmark.md](practice/image-benchmark.md) | assumed | comparing eighteen image models fairly — per-family axes, dialects, tiers |
 | [practice/the-song.md](practice/the-song.md) | measured | **150 s holds, 84 BPM lands** — and the one check that decides if a take is usable |
+| [practice/checkpoints.md](practice/checkpoints.md) | measured | **artifacts prove work, only a checkpoint proves approval** — both gates run live, and what `--open` is for |
+| [practice/directing-the-generator.md](practice/directing-the-generator.md) | measured | **whatever has the most words wins** — the one mechanism behind four separate failures, and the two levers that answer it |
+| [practice/cutting-to-the-song.md](practice/cutting-to-the-song.md) | measured | **12 of 33 cuts were off the beat, and every clip was one length** — the four layers that must agree |
 
 ---
 

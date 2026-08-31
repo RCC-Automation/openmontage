@@ -132,18 +132,30 @@ _ROUTES: tuple[BuildRoute, ...] = (
         "LTX 2.3 text-to-video for one scene of a VRGDG project.",
     ),
     BuildRoute(
+        # Read out of the pack's own _patch_flf_api_prompt on 2026-08-30, not
+        # guessed: it raises on an empty prompt, a missing audio file, a missing
+        # SRT, an empty project folder and a missing first frame. Declaring only
+        # project_folder let a call through that failed inside VRGDG with
+        # "First Last Frame prompt is empty" - an error about our payload
+        # wearing the costume of a Builder problem.
         "flf", "/vrgdg/workflow_runner/build_flf_prompt", "video", True,
-        ("project_folder",), False,
+        ("i2v_prompt", "project_folder", "audio_path", "srt_path", "first_frame"), False,
         "LTX 2.3 first/last-frame interpolation.",
     ),
     BuildRoute(
+        # The prompt comes from the PAYLOAD, not the session - the pack reads
+        # `t2v_prompt` and falls back to `i2v_prompt`. Setting those fields on
+        # the segment and saving the session does nothing, which is what made
+        # this look like an unconfigured Builder rather than an incomplete call.
+        # `rtv_references` (subjects/background) is optional; MSR runs without it.
         "rtv", "/vrgdg/workflow_runner/build_rtv_prompt", "video", True,
-        ("project_folder",), False,
-        "LTX 2.3 reference-to-video.",
+        ("t2v_prompt", "project_folder", "audio_path", "srt_path"), False,
+        "LTX 2.3 reference-to-video (MSR).",
     ),
     BuildRoute(
         "ingredients", "/vrgdg/workflow_runner/build_ingredients_prompt", "video", True,
-        ("project_folder",), False,
+        ("t2v_prompt", "project_folder", "audio_path", "srt_path",
+         "ingredients_image_path"), False,
         "LTX 2.3 ingredients-grid to video.",
     ),
     BuildRoute(

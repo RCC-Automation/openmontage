@@ -592,6 +592,22 @@ The checkpoint protocol meta skill (`skills/meta/checkpoint-protocol.md`) teache
 - **Approval is per-gate.** An early "go ahead" never covers later gates; explicit full-run pre-authorization must be recorded as a `decision_log` entry (`category: "approval_policy"`) to count.
 - Wait for human to approve, request revision, or abort.
 
+**In this fork, write checkpoints through `scripts/checkpoint.py`** rather than
+calling `write_checkpoint` by hand. It reads the stage's `produces:` list from
+the manifest, loads those artifacts off disk and embeds them, records what the
+stage left unresolved (`--open`), and regenerates the project's status page.
+Run it with the repo venv — checkpoint writing validates artifacts against their
+schemas.
+
+```bash
+.venv/Scripts/python.exe scripts/checkpoint.py --project <id> --list
+.venv/Scripts/python.exe scripts/checkpoint.py --project <id> --stage <stage>     --status awaiting_human --note "..." --open "..."
+```
+
+An approval that happened before the record existed goes in `--approved-on`, so
+the audit trail says when and how the human actually decided rather than
+implying the script witnessed it. See WORKFLOW.md, *How every step ends*.
+
 ## Communication Protocol
 
 Agents coordinate through canonical JSON artifacts, checkpoints, pipeline manifests, and the tool registry.

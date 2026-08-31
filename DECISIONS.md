@@ -1116,17 +1116,222 @@ Also recorded there: **always save the intermediate.** Without the pose map on
 disk this would have read as "pose control does not work here" rather than "pose
 control worked and the problem is elsewhere".
 
-See `wiki/practice/prompting.md`.
+**Confirmed a second time, 2026-08-30.** A named character rendered as a
+foreground portrait however her scale was described. Four prompt-structure and
+inpainting strategies failed, including a crop-and-upscale detailer pass that
+ruled out "too few pixels" as the cause. A live negative prompt on Z-Image BASE
+put her at 57 px on the first attempt, untuned. Same lesson, opposite instinct:
+the expensive machinery was reached for first again.
+
+See `wiki/practice/prompting.md` and `wiki/character/placing-her.md`.
+
+---
+
+## 43. A stage is finished when a checkpoint says so, not when the files exist
+
+*accepted — 2026-08-30*
+
+**Context.** `The Man Watches` was built for two days entirely by hand scripts.
+The artifacts were real and correct — song, beat map, six picked plates, a shot
+list. It had **zero checkpoints**. Nothing was wrong with the work, and yet the
+project could not answer three questions about itself: what stage comes next,
+whether the human approved anything, and what an earlier stage left unresolved.
+All three answers lived in `PROGRESS.md` and in a chat transcript.
+
+That is not a documentation gap. `get_next_stage()` reads checkpoints, so on a
+cold open it answered `brief` for a film with a locked score. Nothing prevented
+an export of a half-picked film to the Builder except an agent remembering not
+to — the same shape of failure as film one, where every defect had a stated
+intention behind it and no mechanism.
+
+**Decision.** Every stage of every project ends with a checkpoint, written
+through `scripts/checkpoint.py`. The gate protocol is the one already in
+`AGENT_GUIDE.md` and it is now actually enforced at write time:
+`awaiting_human` → show the human → **stop** → `completed --approved`. Both
+enforcement paths were verified live rather than assumed:
+
+```
+GATE VIOLATION: stage 'brief' requires human approval ... but status='completed'
+was written without human_approved=True.
+
+PREREQUISITE VIOLATION: stage 'score' cannot advance;
+incomplete or missing: ['brief', 'casting'].
+```
+
+**`--open` is the part that is easy to skip and worth the most.** A stage records
+what it did *not* settle, in the checkpoint, so it travels with the film. Casting
+carries "identity_stability across seeds is NOT measured — the manifest asks for
+it; findability at 60 px was measured instead". That is a success criterion the
+stage did not meet, written down by the stage that missed it, surfaced on the
+status page, and readable by a session that was never in the conversation. The
+alternative is a clean-looking `completed` and a gap nobody finds until the
+shoot.
+
+**What it cost to adopt late.** Three stages were approved by the human days
+before any record existed, so their checkpoints carry `--approved-on` naming
+when and how the decision actually happened. That is an honest audit trail for a
+retrofit; it is not a substitute for writing the checkpoint at the time, and it
+should not be needed again.
+
+**Consequence for the status page.** `projects/<id>/status.html` shows the
+checkpoint reading and the on-disk evidence in two columns and never merges them,
+because a disagreement between them is exactly the finding worth seeing. It is
+regenerated on every checkpoint write.
+
+See `wiki/practice/checkpoints.md` and WORKFLOW.md, *How every step ends*.
+
+---
+
+## 44. A shot's length comes from the song, never from a default
+
+*accepted — 2026-08-31*
+
+**Context.** 81 frames is the benchmarked configuration on this machine: every
+render timing we quote refers to it. It was also left as `render_shots.py`'s
+default for real renders. So 34 scenes with 34 different lengths were all
+rendered at 5.06 s.
+
+**What that produced.** 27 shots are shorter than 5.06 s, so the clip overran
+its slot and the Builder cut it. 7 are longer, so the clip ran out: shot 1 needed
+13.05 s and got 5.06 — **7.9 seconds of nothing** in the timeline. Raul saw it
+immediately in the Builder; I had reported the gap in passing and moved on
+rather than treating it as the blocker it was.
+
+**Decision.** Frames are computed from the scene, always. `--frames` still
+exists and now says in its help text that it is for benchmarking only, where
+every clip must be identical to be comparable. Frames snap **up** to 4n+1 — Wan's
+temporal architecture works in that shape, and rounding up means a clip is never
+shorter than its slot.
+
+**It is also cheaper.** The film is 150 s; 34 clips at 5.06 s is 172 s of video
+nobody asked for. True length is 2,446 frames against 2,754 — 11% less work.
+
+**The related fix.** A flat 45-minute per-shot timeout marked two *finished*
+209-frame renders as FAILED (they take ~48 min). One was recovered by hand; the
+other had been sitting on the server for an hour. The wait now scales with the
+frame count. A constant that was right for the benchmark was wrong for the film
+in two separate places.
+
+See `wiki/practice/cutting-to-the-song.md`.
+
+---
+
+## 45. Cuts land on beats, not on fractions of a section
+
+*accepted — 2026-08-31*
+
+**Context.** `retime_plan.py` mapped each shot-list section onto the song's
+measured section boundaries and divided the shots inside it proportionally. The
+boundaries were right — they come from `lyric_align` against the vocal. The cuts
+between them were arbitrary fractions.
+
+**Measured.** Only **12 of 33** cuts fell within 0.12 s of a beat; median offset
+0.18 s. For a film whose founding principle was "the song is the spine and
+picture is cut to it", the picture was not cut to it.
+
+**Decision.** Cuts are placed proportionally — that carries the rhythm the shot
+list asked for — and then moved to the nearest beat that still leaves every
+remaining shot above the 1.5 s floor. Result: **29 of 33**, median offset 0.00 s.
+
+**What is deliberately left off the grid.** Four cuts are song *section*
+boundaries, up to 0.37 s from a beat. A verse can legitimately begin between
+beats and moving it would break sync with the lyric. Losing four cuts to the
+grid is cheaper than losing the words.
+
+**The cost of not having checked.** This was invisible for the whole scene_plan
+stage and through an approved gate. `scripts/audit_timing.py` now checks all four
+layers — beat_map, song, scene_plan, session — and is cheap enough to run before
+every shoot. It also caught the beat-snapped timings being silently reverted by a
+second tool writing the session from a stale copy.
+
+See `wiki/practice/cutting-to-the-song.md`.
+
+---
+
+## 46. WSL gets a memory cap below physical RAM
+
+*accepted — 2026-08-31*
+
+**Context.** WSL was holding 33.7 GiB it would not return; Windows ran at 1.7 GiB
+available. `/free` on the WSL server released 11 GiB inside torch and handed back
+0.3 GiB, against 14.6 GiB on Windows. That asymmetry was recorded in
+`wiki/comfyui/two-platforms.md` as a property of WSL.
+
+**It was a configuration error.** `.wslconfig` said `memory=96GB` on a machine
+with 63.6 GiB of RAM. WSL had been told it could use 150% of the machine, so it
+never met pressure and never stopped growing. There was no `autoMemoryReclaim`
+either, so ~26 GiB of page cache holding model weights was never returned.
+
+**Decision.** `memory=48GB`, `swap=8GB`, `autoMemoryReclaim=gradual`,
+`sparseVhd=true`. 48 clears the 43.7 GiB measured peak of a Wan video job and
+leaves Windows the rest. **Never set `memory` above physical RAM.**
+
+**Measured.** Windows available went from 1.7 GiB to 45.5; `wsl --shutdown`
+reclaimed 26.5 GiB instantly. WSL now reports 47 GiB internally instead of 62.
+
+**What this corrects.** The earlier reading — that WSL simply keeps its
+allocation — was true of the behaviour and wrong about the cause. The wiki page
+said "wsl.exe --shutdown is the only thing that truly reclaims WSL's share";
+with a cap and gradual reclaim it is no longer the only thing.
+
+See `wiki/comfyui/wsl-memory.md`.
+
+---
+
+## 47. A prompt describes a look, not a face
+
+*accepted — 2026-08-31*
+
+**Context.** 34 hero stills were rendered from text descriptions naming the
+character in full — hair, fur shrug, goggles, glitter, scarf. Measured against
+the cast record's own reference: **mean ArcFace 0.057**, highest 0.172, where
+0.35–0.40 separates the same person from a stranger. Zero of 28 detectable faces
+passed. Twenty-eight unrelated women wearing one costume.
+
+**The mechanism.** A description fixes a *look*. Nothing in it fixes a *face*,
+and holding a seed does not help — a seed fixes the ground, and the same seed
+with a different prompt produces a different person. This is exactly the failure
+the production plan diagnosed for film one ("text-to-video with no identity
+conditioning — each clip re-invented the face"), reproduced one stage earlier.
+
+**Decision.** Render freely for body, wardrobe, pose and scene, then transplant
+the anchor's face with ReActor. Measured here: mean **0.057 → 0.587**, best
+0.855, 20 of 28 above the floor — matching the 0.80–0.88 band already recorded
+for ReActor against 0.53–0.68 for an SDXL reference and 0.75–0.84 for IP-Adapter
+FaceID, which normalises an adult woman into a teenager.
+
+**The floor is real.** inswapper needs roughly 0.4% of frame to work with. Four
+stills were below it and correctly skipped: at that size her face is a few
+pixels and the red scarf is what carries her, which the casting round measured
+directly.
+
+**What stays unfixed.** ReActor takes the *largest* face in frame. In a crowd
+shot that is often a bystander — sc07 scored *worse* after its swap. Targeting
+the right face needs `input_faces_index`, which is not yet wired.
+
+See `wiki/character/placing-her.md`.
 
 ---
 
 ## Open questions
 
-- **Where should beat timing win?** L3 has VRGDG measure the music and snap scene
-  boundaries. Unresolved: whether a beat-snapped timeline should overwrite the
-  approved `scene_plan`, or be proposed back through a checkpoint. Leaning
-  towards the latter — silently changing an approved artifact violates the gate
-  contract.
+- **Does Wan hold together at 209 frames?** It is trained around 81. Shots 01
+  and 02 rendered at 209 without failing, but nobody has judged them for drift
+  or looping against an 81-frame equivalent. Seven shots in this film need more
+  than 120 frames.
+- **Should song section boundaries be nudged onto beats?** Four cuts sit up to
+  0.37 s off the grid because `lyric_align` placed the section against the
+  vocal. Keeping them preserves lyric sync; moving them would make every cut
+  land. Untested which reads better.
+
+- ~~**Where should beat timing win?**~~ **Answered 2026-08-30 by #43.** Proposed
+  back through a checkpoint, never applied silently. `retime_plan.py` writes the
+  retimed `scene_plan.json` and the stage is checkpointed `awaiting_human` with
+  the compromises named — seven shots longer than anything this machine has
+  rendered, a verse that halved, an intro that doubled. Which shots to split or
+  hold is a creative decision, so the tool reports and the human decides. Still
+  open: what happens when a beat-snap arrives *after* `scene_plan` is approved,
+  which needs a send-back rather than a first write.
 - **LoRA training on ROCm.** VRGDG's Krea-2 Studio installs musubi-tuner and
   ai-toolkit, both CUDA-oriented. L6 may need porting or a rented GPU.
 - **Upstream contribution.** Some of this is generic enough to offer to

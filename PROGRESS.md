@@ -2,7 +2,7 @@
 
 State of the VRGDG integration. Update this when something lands.
 
-**Last updated:** 2026-08-28
+**Last updated:** 2026-08-31
 **Branch:** `integration/comfyui-local` (fork `RCC-Automation/openmontage`, upstream `calesthio/OpenMontage`)
 **HEAD:** tip of `integration/comfyui-local`, **8 commits ahead of
 `origin/integration/comfyui-local`** — push when convenient. Deliberately not
@@ -651,26 +651,136 @@ trusted until reconciled.
 
 ---
 
+## The way of working: checkpoints and one status page per film ✅ 2026-08-30
+
+The rule is now enforced rather than intended: **a stage is finished when a
+checkpoint says so, not when the files exist.** `DECISIONS.md` #43,
+`wiki/practice/checkpoints.md`, WORKFLOW.md *How every step ends*.
+
+| Built | What it does |
+|---|---|
+| `scripts/checkpoint.py` | write and read stage checkpoints. Loads the stage's `produces:` list from the manifest, embeds those artifacts, records what the stage left unresolved (`--open`), regenerates the status page. **Needs the repo venv** — checkpoint writing validates artifacts against their schemas. |
+| `scripts/project_page.py` | generates `projects/<id>/status.html` from the project on disk. Dependency-free on purpose; runs on either Python. |
+| `scripts/retime_plan.py` | maps the shot list onto the song's measured section boundaries and writes `artifacts/scene_plan.json`. Two gates, both reporting rather than editing: nothing under 1.5 s, nothing longer than the 5.06 s longest clip rendered here. |
+| `lib/shot_list.py` | one parser for the markdown shot table, shared by the page and the retime. |
+
+**Both enforcement paths verified live**, not read off the source: a gated stage
+refuses `completed` without `human_approved`, and a stage refuses to advance
+past incomplete predecessors.
+
+### `the-man-watches` retrofitted
+
+Four checkpoints written where there were none. `brief`, `casting` and `score`
+are `completed --approved`, each carrying `--approved-on` naming when Raul
+actually decided, because the approvals predate the record. `scene_plan` is
+**`awaiting_human`** — the retime is done and waiting on him.
+
+New canonical artifacts on disk and schema-valid: `brief.json`,
+`cast_record.json`, `scene_plan.json`, plus `picks.json` (not canonical — the
+machine-readable form of `plan/04-picks.md`).
+
+**Carried forward by the checkpoints themselves**, so it travels with the film:
+identity stability across seeds is not measured (findability at 60 px was);
+seven shots are longer than anything this machine has rendered; the intro
+doubled and verse 1 halved against the plan's clock; the production plan's
+pale-coat brief is overturned by the cast and the shot list has been corrected
+to match.
+
+---
+
+## The film reached the Builder with clips in it ✅ 2026-08-31
+
+`The Man Watches` is **6 of 10 stages approved** and three shots are rendered,
+attached and playing at the right length. The stage that took the session was
+scene_look, and most of the work was finding out what the pipeline was silently
+getting wrong.
+
+### Where the film stands
+
+| stage | |
+|---|---|
+| brief, casting, score, scene_plan, scene_look, export | **completed, approved** |
+| render | 3 of 34 clips |
+| import, dailies, post | not started |
+
+- **34 hero stills** at 2.39:1, one per scene, in `scene_look/heroes/`.
+- **Identity locked by face swap.** ArcFace against the cast reference went from
+  **0.057 to 0.587** (best 0.855). Before the swap the film was 28 unrelated
+  women in one costume.
+- **Cuts snapped to beats**: 12 of 33 → **29 of 33**, median offset 0.00 s.
+- **Clips render at their own length.** sc01 13.06 s, sc02 13.06 s, sc03 2.56 s,
+  each covering its slot.
+- Exported to the **Windows** Builder project `TheManWatches`: 34 segments with
+  prompts, stills, cast settings, audio with 212 beat markers, lyrics and SRT.
+
+### Built this session
+
+| | lines | |
+|---|---|---|
+| `scripts/checkpoint.py` | 220 | write/read stage checkpoints; enforces the gate |
+| `scripts/project_page.py` | 835 | `projects/<id>/status.html`, generated from disk |
+| `scripts/heroes_page.py` | 235 | the reel: 34 stills, flagged |
+| `scripts/retime_plan.py` | 449 | shot list → scene_plan, beat-snapped, camera designed |
+| `scripts/hero_stills.py` | 260 | one still per scene from the plan |
+| `scripts/lock_identity.py` | 188 | ReActor face swap onto the cast reference |
+| `scripts/identity_check.py` | 127 | ArcFace drift measurement |
+| `scripts/render_shots.py` | 339 | Wan renders, per scene, isolated, resumable |
+| `scripts/audit_timing.py` | 150 | checks beat_map → song → plan → session |
+| `scripts/place_character.py` | 566 | the ten-render study that found the negative-prompt fix |
+| `scripts/attach_clips.py`, `sync_timing.py`, `push_stills.py`, `build_manifest.py`, `finish_shots.py`, `shoot_batch.py` | 616 | the Builder bridge in practice |
+| `lib/shot_list.py` | 103 | one parser for the markdown shot table |
+
+`lib/comfy_routing.py` gained `upload_image` and `assert_headroom`;
+`assert_exclusive` is gone — see DECISIONS #43-#47.
+
+### The machine
+
+`.wslconfig` had `memory=96GB` on a 63.6 GiB machine. Fixed: Windows available
+went from **1.7 GiB to 45.5**. `wsl --shutdown` reclaimed 26.5 GiB on the spot.
+
+### Measured render cost, Wan 2.2 i2v at 832x352 (WSL)
+
+| frames | clip | wall clock |
+|---|---|---|
+| 41 | 2.56 s | 5 min |
+| 81 | 5.06 s | ~14.5 min |
+| 209 | 13.06 s | 42-48 min |
+
+Remaining 31 shots: **2,446 frames, ~6.5 h**.
+
+---
+
 ## Next
 
-1. **Finish the BurningManGirl render — 12 of 15 clips left.** The blocker is
-   measured: the LTX upscale refine costs 610 s/step against the base pass's
-   26 s/step, and it has hung once and crashed once. **Disable the upscale**
-   (clear `upscale_model_name`, or second sigmas to `0.0`, or use
-   `scripts/export_i2v_workflow.py --no-upscale`) and render scenes 4-15 at
-   ~3.5 min each instead of ~35. Scene 4 was re-running at clock-out.
+1. **Add the duplicate-submit guard to `render_shots.py`.** Before submitting,
+   check the server's queue for a prompt whose `filename_prefix` is already this
+   scene. sc01 was rendered three times on 2026-08-31 - a killed runner and the
+   batch both submitted it - costing ~80 min of GPU. With 31 shots left and
+   runners that keep dying, this recurs. ~10 minutes of work.
 
-2. **Then step 8, Import.** The bridge exists and is proven both directions;
-   what is missing is the skill and the checkpoint around it (`PLAN.md` WP3).
+2. **Then render the remaining 31 shots**, isolated per scene:
+   `.venv/Scripts/python.exe scripts/render_shots.py --project the-man-watches
+   --isolate --builder "C:\Users\Barrul\AppData\Local\Comfy-Desktop\ComfyUI-Shared\output\TheManWatches"`
+   ~6.5 h. Resumable - re-running skips what exists. Launch it detached
+   (`scripts/shoot_batch.py` via `Start-Process`), because every long runner in
+   this session outlived its shell.
 
-3. **Then step 9, Dailies** — the highest-value unbuilt step, and the tooling
-   now exists: ArcFace per clip against the cast record, `visual_qa`,
-   `composition_validator`. `PLAN.md` says these are "wired to nothing"; after
-   this session they have something to be wired to.
+3. **Judge sc01/sc02 at 209 frames before committing the other five long shots.**
+   Wan is trained around 81 and nothing has been checked for drift or looping at
+   2.6x that. Shots 08, 09, 25, 33, 34 are the ones affected.
+
+4. **Then step 8, Import**, and step 9, Dailies.
 
 ### Open, and needing Raul
 
-- **Push.** 3 commits sit ahead of origin.
+- **Push.** 6 commits sit ahead of origin after this session.
+- **sc02 renders the truck arriving**, when the shot's entire point is that it
+  never does. Needs a re-render with the truck held distant.
+- **sc07's face swap landed on a bystander.** ReActor takes the largest face and
+  in a crowd that is often not her; `input_faces_index` is not wired.
+- **No `medium` reference exists** for the cast. Those scenes render from the
+  description alone, and DECISIONS #30 measured that a mismatched-framing
+  reference scores worse than none.
 - **The LTX upscale setting** is project-wide and lives in the Builder UI. It
   needs turning off there, or every future render hits the same wall.
 - **`QUESTIONS.md` Q1–Q6 and Q8** — seven open, each with a stated assumption.

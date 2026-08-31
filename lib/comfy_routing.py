@@ -12,9 +12,14 @@ capability routing cannot express the split. This module routes per workflow.
 
 Full numbers and the reasoning: `wiki/comfyui/two-platforms.md`.
 
-**Never run both servers at once.** GPU memory is system RAM on this machine -
-63.6 GiB total - and an idle WSL holding 41 GiB killed the Windows process
-mid-load. :func:`assert_exclusive` is the guard.
+**Both servers may run at once** (Raul, 2026-08-30) - what has to be watched is
+memory, not server count. GPU memory is system RAM here, 63.6 GiB total, and on
+2026-08-29 an idle WSL holding 41 GiB killed the Windows process part-way
+through loading a 13.6 GB model. That was a residency failure, not a
+co-existence one: two idle servers cost nothing, and a WSL *image* job (8.2 GiB
+peak) alongside a Windows *video* job (42.5 GiB) fits with room to spare. Two
+video jobs at once (43.7 + 42.5) never will. :func:`assert_headroom` measures
+what is actually free instead of counting processes.
 
 Environment:
 
@@ -33,7 +38,9 @@ from typing import Any
 
 __all__ = [
     "WAN_PATTERNS", "is_wan", "server_for", "wan_server", "windows_server",
-    "target_is_wsl", "to_wsl_paths", "prepare", "assert_exclusive", "which_platform",
+    "target_is_wsl", "to_wsl_paths", "prepare", "assert_headroom",
+    "upload_image",
+    "free_gib", "PEAK_GIB", "which_platform",
 ]
 
 #: A workflow is a Wan workflow if its name matches any of these. Matching on
@@ -146,22 +153,94 @@ def prepare(workflow: str | Path, graph: dict[str, Any]) -> tuple[str, dict[str,
     return server, graph
 
 
-def assert_exclusive(server: str) -> None:
-    """Raise if the *other* ComfyUI is also up.
+#: Peak resident memory per kind of job, measured on this machine
+#: (`scene_look/bench-suite/`, 2026-08-30). These are what a job actually needs
+#: to be free, not what it nominally loads.
+PEAK_GIB = {
+    ("video", "wsl"): 43.7,
+    ("video", "windows"): 42.6,
+    ("image", "windows"): 27.7,
+    ("image", "wsl"): 8.3,
+}
 
-    Both running at once is not merely wasteful. On 2026-08-29 an idle WSL
-    holding 41 GiB caused the Windows process to die with an access violation
-    part-way through loading a 13.6 GB model, because GPU memory here is system
-    RAM and 41 + 27 > 63.6.
+
+def free_gib() -> float | None:
+    """Free physical memory, or None when it cannot be read.
+
+    Deliberately the OS number rather than a ComfyUI report: `/system_stats`
+    describes one server's view of a shared pool, and the whole point here is
+    what *everything* has left between it.
     """
+    try:
+        import subprocess
+        out = subprocess.run(
+            ["powershell", "-NoProfile", "-Command",
+             "(Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory"],
+            capture_output=True, text=True, timeout=30)
+        return round(int(out.stdout.strip()) / 1048576, 1)
+    except Exception:
+        return None
+
+
+def assert_headroom(server: str, kind: str = "video", margin_gib: float = 4.0) -> None:
+    """Raise when there is not enough free memory for this job to load.
+
+    Replaces the old "never run both servers" rule, which was a proxy for this
+    and blocked cases that are fine. A job is refused on the measured number or
+    not at all - and when the number cannot be read, it is allowed through with
+    nothing claimed, because a guard that guesses is worse than no guard.
+    """
+    platform = "wsl" if target_is_wsl(server) else "windows"
+    need = PEAK_GIB.get((kind, platform), PEAK_GIB[("video", platform)])
+    free = free_gib()
+    if free is None or free >= need + margin_gib:
+        return
     other = windows_server() if server.rstrip("/") == wan_server() else wan_server()
+    up = False
     try:
         urllib.request.urlopen(f"{other}/system_stats", timeout=5)
+        up = True
     except Exception:
-        return
+        pass
     raise RuntimeError(
-        f"Both ComfyUI servers are running ({server} and {other}). GPU memory is "
-        "system RAM on this machine and running both has crashed the backend "
-        "mid-load. Stop one first: 'wsl.exe --shutdown' for WSL, or quit Comfy "
-        "Desktop for Windows. See wiki/comfyui/two-platforms.md."
+        f"{free} GiB free, but a {kind} job on {platform} peaked at {need} GiB "
+        f"when it was measured (plus {margin_gib} GiB margin). GPU memory is "
+        "system RAM here, and loading into too little has crashed the backend "
+        "mid-load with an access violation."
+        + (f" The other server at {other} is also up and holding memory; free it "
+           "with its /free endpoint, or stop it." if up else
+           " Close what else is resident and retry.")
+        + " See wiki/comfyui/two-platforms.md."
     )
+
+
+def upload_image(server: str, path: Path | str) -> str:
+    """Put an image into ComfyUI's own input/ folder; returns the name to use.
+
+    `LoadImage` takes a NAME from that folder, not a path - handing it an
+    absolute one fails with "Invalid image file" even when the file is plainly
+    there, which reads as a corrupt file and is not. `VHS_LoadImagePath` is the
+    node that accepts paths; most stock graphs use the other one.
+
+    Uploading also sidesteps the mount entirely: nothing has to be translated
+    for WSL, because the file ends up on the server's own filesystem.
+    """
+    path = Path(path)
+    boundary = "----openmontage"
+    body = f"--{boundary}\r\n".encode()
+    body += (
+        f'Content-Disposition: form-data; name="image"; filename="{path.name}"\r\n'
+        "Content-Type: image/png\r\n\r\n"
+    ).encode()
+    body += path.read_bytes() + b"\r\n"
+    body += (
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="overwrite"\r\n\r\ntrue\r\n'
+    ).encode()
+    body += f"--{boundary}--\r\n".encode()
+    req = urllib.request.Request(
+        f"{server.rstrip('/')}/upload/image",
+        data=body,
+        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+    )
+    return json.loads(urllib.request.urlopen(req, timeout=600).read())["name"]

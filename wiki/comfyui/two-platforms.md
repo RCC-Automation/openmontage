@@ -1,7 +1,7 @@
 ---
 title: Two ComfyUI installs, split by engine
 status: measured
-updated: 2026-08-30
+updated: 2026-08-31
 sources: [this-machine.md, failure-modes.md, ../vrgdg/video-render.md]
 ---
 
@@ -28,7 +28,7 @@ budget you can spend.
 
 Wan 2.2 I2V at 640x640 / 81 frames, SDXL at 1280x720, LTX through the generator's
 known-good graph. Three runs each, cold and warm reported separately, identical
-inputs, one platform at a time.
+inputs, sized to what memory is actually free.
 
 | workload | Windows | WSL | winner |
 |---|---|---|---|
@@ -58,15 +58,31 @@ Four times faster loading, six gigabytes less memory, and marginally *faster*.
 No downside appeared in nine runs. **Leave it off**, and note that on a
 unified-memory machine the memory saving matters more than the speed.
 
-### Never run both at once
+### Both may run; two big jobs may not
 
 2026-08-29: Windows died with `Windows fatal exception: access violation` inside
 `load_torch_file` while an **idle** WSL held ~41 GiB. ComfyUI reported 77 GB
 "usable" moments before. It was not an out-of-memory error and not a broken
 library - it was 41 + 27 > 63.6 on a machine where GPU memory *is* system RAM.
 
-**Shut one down before using the other.** `wsl.exe --shutdown` reclaims WSL's
-share; on Windows, quit Comfy Desktop.
+**The rule that followed was wrong in shape.** "Never run both servers" is a
+proxy for the real constraint and forbids combinations that fit. What matters is
+the sum of *resident* weights against 63.6 GiB. Peak resident memory per job,
+measured here:
+
+| job | platform | peak |
+|---|---|---|
+| video | WSL | 43.7 GiB |
+| video | Windows | 42.6 GiB |
+| image | Windows | 27.7 GiB |
+| image | WSL | 8.3 GiB |
+
+So two video jobs cannot coexist however the processes are arranged, an image
+job beside a video job can, and two idle servers cost almost nothing. Lifted to
+a memory check 2026-08-30 at Raul's direction; `assert_headroom()` reads the
+OS's free-physical number and refuses on it.
+
+**When it is tight, `/free` first** - with the asymmetry below in mind.
 
 ### `/free` behaves differently on each
 
@@ -75,9 +91,16 @@ share; on Windows, quit Comfy Desktop.
 | Windows | **14.6 GiB** |
 | WSL | 0.8 GiB |
 
-WSL keeps its allocation. That is why the crash above happened after a `/free`
-that looked successful, and why "I freed it" is not sufficient before switching
-platforms.
+WSL keeps its allocation, and that is why the crash above happened after a
+`/free` that looked successful.
+
+**Corrected 2026-08-31.** This page previously said `wsl.exe --shutdown` was the
+only thing that reclaims WSL's share. That was true of the behaviour and wrong
+about the cause: `.wslconfig` had `memory=96GB` on a 63.6 GiB machine and no
+`autoMemoryReclaim`, so WSL never met pressure and never returned its page
+cache. With a cap below physical RAM and `autoMemoryReclaim=gradual`, memory
+comes back without a shutdown — Windows went from 1.7 GiB available to 45.5.
+See [WSL memory](wsl-memory.md).
 
 ## What it costs
 
@@ -155,7 +178,8 @@ Three things it does that matter:
 - **identifies a server by its reported `vram_total`** (87.9 GiB Windows, 95.7
   WSL), because Comfy Desktop reassigns ports and a Windows instance did appear
   on 8189;
-- **`assert_exclusive()`** refuses when both servers are up.
+- **`assert_headroom()`** refuses when free physical memory is below the
+  measured peak for the job about to run, and names `/free` or what to close.
 
 `tests/contracts/test_comfy_routing.py` holds 20 tests on it. **A misrouted Wan
 workflow now fails by finding an empty model dropdown - no error, no

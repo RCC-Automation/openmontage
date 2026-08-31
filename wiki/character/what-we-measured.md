@@ -198,10 +198,39 @@ environment does not already occupy.** Dark against light where the ground is
 bright; a saturated hue where everything is desaturated; brightness only where
 the world is genuinely dark.
 
-Confirmed to hold at night. The same red reads against six lighting states
-including pure firelight, which was the predicted failure — warm light on a warm
-colour. It does not wash out, so one carrier serves the whole film and no second
-identity cue is needed.
+**At night it holds in five lighting states of six, and fails in the sixth.**
+Corrected 2026-08-30. The original claim — that the red survives pure firelight,
+the predicted failure — was measured on a round where she filled the foreground,
+because that round's negative prompt was silently discarded (see
+[placing her](placing-her.md)). Re-run at crowd scale on a model whose negative
+is live:
+
+| light | does the red find her? |
+|---|---|
+| moonlight | **best of the six.** Red against cold blue |
+| camp lights | yes — warm ring behind, cool foreground |
+| work lights | yes — flat white, closest to a daylight reading |
+| mixed | yes |
+| EL wire | yes, but weaker: hers is no longer the only saturated colour |
+| **pure firelight** | **no.** The whole frame goes orange and she merges into it |
+
+So the predicted failure was real; it was hidden by testing at the wrong scale.
+One carrier still serves the film, with a constraint: **no wide that has to
+carry her may be lit by fire alone.** The Attention shots are exempt — she is
+medium or closer there and her face, not her colour, is doing the work.
+
+The measurement failed on that frame too, and instructively: the red-blob proxy
+reported "found, 100% of frame height" for firelight, because it found the
+orange sky. A saturating proxy reads as a strong positive. The verdict came from
+looking.
+
+### Size is relative, not absolute
+
+The "60 px" that runs through this page is *her real size in a wide of this
+film*, not a specification. The thing that makes a figure wrong is a mismatch
+with her neighbours: the rejected plate had her at 60% of frame height beside
+people at 15%. Judge a candidate against the figures nearest her at the same
+depth, and let the absolute number follow from where the composition puts her.
 
 ### Test it the way it will be seen
 

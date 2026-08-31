@@ -330,6 +330,52 @@ Generating them is a Lab job (WP5) and cheap - ACE-Step makes a 9-second track
 in 30 s. Until then any film cut to a "strong" grid should be spot-checked by
 ear at one cut.
 
+### Q9. Does Wan hold together at 209 frames?
+
+**Status:** assumed
+**Raised:** 2026-08-31, rendering `The Man Watches` shots 01 and 02
+**Blocks:** five more long shots — 08, 09, 25, 33, 34
+
+**The situation.** Wan 2.2 is trained around 81 frames (5.06 s at 16 fps). Seven
+shots in this film need more: two at 209 frames, two at 165, two at 129, one at
+97. Shots 01 and 02 rendered at 209 without erroring, in 42–48 minutes each, and
+the clips are the right length — but nobody has judged them for temporal drift,
+looping or degradation against an 81-frame equivalent.
+
+**What I assumed to keep going.** That a longer clip is merely slower, not
+worse. It is the assumption that lets the remaining shots be rendered at true
+length, which is both correct for the timeline and 11% cheaper overall than
+padding everything to 81 frames.
+
+**What changes if the answer is different.** Those seven shots need splitting
+into joined clips — which puts cuts inside shots designed as one continuous
+frame, including the bookend that must match shot 34 exactly — or the scene plan
+shortens them, which changes the film's rhythm. `retime_plan.py` and
+`render_shots.py` would both need a max-frames rule.
+
+---
+
+### Q10. Should song section boundaries be nudged onto beats?
+
+**Status:** assumed
+**Raised:** 2026-08-31, snapping cuts to the beat grid
+**Blocks:** nothing
+
+**The situation.** After snapping, 29 of 33 cuts land within 0.12 s of a beat.
+The four that do not are song *section* boundaries — up to 0.37 s off — placed by
+`lyric_align` against the vocal rather than against the grid.
+
+**What I assumed to keep going.** That lyric sync outranks beat sync at a
+section boundary: a verse begins where the words begin. Losing four cuts to the
+grid is cheaper than losing the words.
+
+**What changes if the answer is different.** A one-line change in
+`retime_plan.py` to snap section boundaries too. It would make every cut land on
+a beat and move each affected section start by up to 0.37 s, which shifts the
+first shot of four sections against its lyric.
+
+---
+
 ---
 
 
