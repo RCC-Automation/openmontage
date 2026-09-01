@@ -65,7 +65,7 @@ Every page carries a `status`: **measured** (we ran it here, with numbers) ·
 | [character/choosing-a-mechanism.md](character/choosing-a-mechanism.md) | measured | **all four ranked in one run** — swap, reference, FaceID, LoRA, at two shot sizes |
 | [character/dataset-bootstrap.md](character/dataset-bootstrap.md) | researched | 20–40 consistent images from one render |
 | [character/runbook-first-lora.md](character/runbook-first-lora.md) | assumed | **the steps** — phase by phase, with a gate on each |
-| [character/video-identity.md](character/video-identity.md) | measured | **the render redraws the face, and the framing decides whether it can be put back** — toward camera, upright, unoccluded |
+| [character/video-identity.md](character/video-identity.md) | measured | **the render redraws the face; framing decides if it can go back, and shot size decides how much should** — a close-up may need no swap at all |
 
 ## Practice — how we work
 

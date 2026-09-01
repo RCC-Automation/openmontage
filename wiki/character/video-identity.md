@@ -78,6 +78,44 @@ the only answer, and usually the shot is fine as it is.
 
 ---
 
+### Swap strength is per shot size — and a close-up may need none
+
+**inswapper renders at 128×128, literally.** In a wide that is more resolution
+than the face occupies and costs nothing. In a close-up the face fills 200-300
+px, so a 128 px result is stretched over it: measured on `The Man Watches`, the
+swapped face carried **half the detail of the frame around it** (Laplacian 6.4
+against 12.1 on sc16, 6.3 against 13.0 on sc31). Raul saw that as the face
+"vibrating"; it is softness at scale, and the eye reads a soft patch inside a
+sharp image as instability.
+
+**The measurements did not find it.** Every flicker metric said the swapped face
+was *more* stable than the unswapped one — temporal acceleration fell 3.44 →
+2.62, sharpness wobble 6.45% → 5.34%, and the flicker spikes sat at identical
+frames in the native clip, so they came from Wan. The defect was real and visible
+and none of it showed up as flicker. **Judge this one by looking** (DECISIONS
+#40) — and see the trap below about what a blend does to these numbers.
+
+**The two forces run opposite ways with shot size.** The wider the shot, the less
+identity Wan keeps and the more the swap is worth. The tighter the shot, the more
+Wan keeps on its own and the more the swap costs in detail. They cross around
+medium-close, so strength is set per scene rather than globally:
+
+| shot | Wan alone | swap | chosen | why |
+|---|---|---|---|---|
+| sc16 close-up | **0.65** | 0.81 | **off** | already over the floor; full detail back |
+| sc31 close-up | **0.69** | 0.88 | **off** | same |
+| sc15 medium-close | **0.69** | 0.84 | **off** | same |
+| sc08 medium-close | 0.34 | 0.79 | **40%** | 0.52, and detail 5.4 → 7.5 |
+| sc18 medium | 0.14 | 0.64 | **70%** | 0.52, the least that clears the floor |
+
+Blending is a plain alpha mix of the swapped clip over the original render, so
+any strength between the two is available and the curve is smooth — sc08 at 40%
+buys back 41% of its detail for identity it did not need.
+
+> **Ask what the render already gives you before applying the swap at all.**
+> A close-up that scores 0.65 unswapped does not need a 128 px face pasted over
+> a 250 px one.
+
 ### What the shot has to give the swap: toward camera, upright, unoccluded
 
 The swap is not the variable. **The framing is.** Every scene on this film that
@@ -149,6 +187,19 @@ discards any swap that does not improve the number and keeps the original.
 
 **Do not read a high still score as a solved scene.** The still is one frame of
 several hundred, and it is the one frame the swap was applied to.
+
+**A blend improves every flicker metric by blurring, so the metrics cannot pick
+the strength for you.** Averaging frames — or averaging two versions of a
+frame — lowers frame-to-frame difference *because* it smears. An earlier attempt
+to cross-fade a seam scored 3.6× → 0.72× and looked like a double exposure. Use
+identity for the floor and the Laplacian for detail, then **look at it**; there
+is no single number whose maximum is the right answer.
+
+**`face_restore_model` and `face_restore_visibility` did nothing measurable
+here.** GPEN-BFR-512 at 0.75 against GFPGANv1.4 at 1.0 produced files differing
+by **4 bytes** on the same clip. They are exposed as flags on
+`swap_clip_faces.py`, but the lever that matters is swap strength, not the
+restorer.
 
 ---
 

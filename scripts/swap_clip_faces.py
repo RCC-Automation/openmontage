@@ -108,7 +108,7 @@ def measure(clip: Path, ref_embedding, app, samples: int = 6) -> dict:
 
 
 def swap_graph(clip: Path, ref_name: str, sid: str, faces_index: str,
-               restore: str) -> dict:
+               restore: str, visibility: float = 1.0) -> dict:
     """Frames in, face swapped on every one of them, video out.
 
     `format: "None"` on the loader matters: the default ("AnimateDiff") coerces
@@ -125,7 +125,8 @@ def swap_graph(clip: Path, ref_name: str, sid: str, faces_index: str,
             "enabled": True, "input_image": ["1", 0], "source_image": ["2", 0],
             "swap_model": "inswapper_128.onnx",
             "facedetection": "retinaface_resnet50",
-            "face_restore_model": restore, "face_restore_visibility": 1.0,
+            "face_restore_model": restore,
+            "face_restore_visibility": visibility,
             "codeformer_weight": 0.5, "detect_gender_input": "no",
             "detect_gender_source": "no", "input_faces_index": faces_index,
             "source_faces_index": "0", "console_log_level": 1}},
@@ -199,9 +200,17 @@ def main() -> int:
     ap.add_argument("--faces-index", default="0",
                     help="which face in frame to replace, largest first. "
                          "In a crowd the largest is often a bystander")
-    ap.add_argument("--restore", default="GFPGANv1.4.pth",
+    ap.add_argument("--restore", default="GPEN-BFR-512.onnx",
                     choices=("none", "codeformer-v0.1.0.pth", "GFPGANv1.3.pth",
-                             "GFPGANv1.4.pth", "GPEN-BFR-512.onnx"))
+                             "GFPGANv1.4.pth", "GPEN-BFR-512.onnx"),
+                    help="face restorer. GPEN-BFR-512 is the one reported best "
+                         "for faces turned away from camera, which most of a "
+                         "film is")
+    ap.add_argument("--visibility", type=float, default=0.75,
+                    help="how much of the restored face to keep, 0.1-1.0. "
+                         "A restorer invents detail independently on every "
+                         "frame, so at 1.0 that invention flickers; 0.7-0.8 "
+                         "keeps the detail and blends most of the shimmer away")
     ap.add_argument("--minutes", type=float, default=30.0)
     ap.add_argument("--keep-worse", action="store_true",
                     help="keep the swap even when it lowers identity")
@@ -266,7 +275,8 @@ def main() -> int:
         print(f"  {sid} ({before['frames']}f) ...", end="", flush=True)
         tmp = video / f"{sid}.swap.mp4"
         r = run(args.server, swap_graph(clip, ref_name, sid, args.faces_index,
-                                        args.restore), tmp, args.minutes)
+                                        args.restore, args.visibility),
+                tmp, args.minutes)
         if not r.get("ok"):
             print(f" FAILED: {str(r.get('error'))[:100]}")
             tmp.unlink(missing_ok=True)
@@ -292,7 +302,7 @@ def main() -> int:
         with ledger.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps({
                 "ok": True, "id": sid, "stage": "clip_face_swap",
-                "engine": f"reactor inswapper_128 + {args.restore}",
+                "engine": f"reactor inswapper_128 + {args.restore} @ {args.visibility}",
                 "platform": "windows", "seconds": r.get("seconds"),
                 "identity_before": before["mean"], "identity_after": after["mean"],
                 "kept": bool(better or args.keep_worse),
