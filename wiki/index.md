@@ -65,7 +65,7 @@ Every page carries a `status`: **measured** (we ran it here, with numbers) ·
 | [character/choosing-a-mechanism.md](character/choosing-a-mechanism.md) | measured | **all four ranked in one run** — swap, reference, FaceID, LoRA, at two shot sizes |
 | [character/dataset-bootstrap.md](character/dataset-bootstrap.md) | researched | 20–40 consistent images from one render |
 | [character/runbook-first-lora.md](character/runbook-first-lora.md) | assumed | **the steps** — phase by phase, with a gate on each |
-| [character/video-identity.md](character/video-identity.md) | stub | what drifts across a clip and what stops it |
+| [character/video-identity.md](character/video-identity.md) | measured | **the render redraws the face, and the framing decides whether it can be put back** — toward camera, upright, unoccluded |
 
 ## Practice — how we work
 
@@ -80,7 +80,7 @@ Every page carries a `status`: **measured** (we ran it here, with numbers) ·
 | [practice/image-benchmark.md](practice/image-benchmark.md) | assumed | comparing eighteen image models fairly — per-family axes, dialects, tiers |
 | [practice/the-song.md](practice/the-song.md) | measured | **150 s holds, 84 BPM lands** — and the one check that decides if a take is usable |
 | [practice/checkpoints.md](practice/checkpoints.md) | measured | **artifacts prove work, only a checkpoint proves approval** — both gates run live, and what `--open` is for |
-| [practice/directing-the-generator.md](practice/directing-the-generator.md) | measured | **whatever has the most words wins** — the one mechanism behind four separate failures, and the two levers that answer it |
+| [practice/directing-the-generator.md](practice/directing-the-generator.md) | measured | **whatever has the most words wins** — the one mechanism behind four separate failures, the two levers that answer it, and why a contradictory motion cue comes back as oscillation |
 | [practice/cutting-to-the-song.md](practice/cutting-to-the-song.md) | measured | **12 of 33 cuts were off the beat, and every clip was one length** — the four layers that must agree |
 
 ---

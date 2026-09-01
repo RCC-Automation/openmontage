@@ -1313,6 +1313,63 @@ See `wiki/character/placing-her.md`.
 
 ---
 
+## 48. Identity is applied to the footage, not to the still
+
+*accepted — 2026-09-01*
+
+**Context.** #39 and #47 settled that identity comes from a ReActor swap rather
+than a LoRA or a prompt, and the stills proved it: mean ArcFace 0.057 → 0.587,
+every hero still above the floor. That was then treated as the film's identity
+being solved. It was not measured again after the clips existed.
+
+**What the footage actually scored.** Same reference, same metric, measured on
+the rendered clips instead of the stills:
+
+| scene | shot size | still | clip |
+|---|---|---|---|
+| sc31 | close_up | 0.84 | 0.76 |
+| sc16 | medium_close | 0.79 | 0.54 |
+| sc09 | medium_close | 0.65 | 0.38 |
+| sc18 | medium | 0.79 | **0.25** |
+| sc11 | wide | 0.76 | **0.20** |
+| sc05 | medium_wide | 0.69 | **0.11** |
+| sc08 | medium_close | 0.48 | **0.09** |
+
+Raul's report was "she is not she", and he was right about more scenes than he
+named. **The wider the shot, the more identity image-to-video eats** — the model
+redraws a face it has few pixels of, and a swap performed before that happens is
+overwritten by it.
+
+**Decision.** Identity is re-applied **after** generation, as its own stage
+(`scripts/swap_clip_faces.py`, WORKFLOW step 7b), over the clip's frames.
+Measured on the first three: 0.15 → 0.67, 0.14 → 0.59, 0.35 → 0.66.
+
+Swapping the still is still worth doing — it is what makes the *render* start
+from the right face — but it is no longer where identity is verified.
+
+**The stage carries its own proof.** Every clip is scored before and after
+against the reference `identity_check.json` uses, and **a swap that does not
+improve is discarded and the original kept.** A face-swap stage without that
+check is a way to make footage worse while reporting success, which is #37 with
+higher stakes: the proxy here is not a bad measurement, it is a measurement of
+the wrong artifact.
+
+**This closes #47's loose end.** `input_faces_index` is wired and exposed, so the
+crowd shots where ReActor grabs a bystander can name the right face — and the
+before/after number says when the choice was wrong.
+
+**What it does not fix.** A face that is not in frame. Worth attempting anyway:
+sc08 is a pure profile with the head tilted back, predicted unfixable, and it
+gained +0.44. When the stage reports no face, the answer is to re-direct the
+shot.
+
+**The general lesson, and it is the third time.** #37 says measure the thing you
+are claiming. Twice that meant a bad proxy for the right artifact; here it was a
+good metric on the wrong artifact. A stage's output is not verified by verifying
+its input.
+
+---
+
 ## Open questions
 
 - **Does Wan hold together at 209 frames?** It is trained around 81. Shots 01

@@ -14,8 +14,8 @@ Ten steps. Each one has a single owner, produces one thing you can look at,
 and stops for you before the next begins.
 
 ```
-1 Brief ─► 2 Casting ─► 3 Score ─► 4 Scene plan ─► 5 Scene look ─► 6 Export ─► 7 Render ─► 8 Import ─► 9 Dailies ─► 10 Post
-  agree     LOOP         LOOP        write           LOOP            hand over    YOU         collect     LOOP           finish
+1 Brief ─► 2 Casting ─► 3 Score ─► 4 Scene plan ─► 5 Scene look ─► 6 Export ─► 7 Render ─► 7b Identity ─► 8 Import ─► 9 Dailies ─► 10 Post
+  agree     LOOP         LOOP        write           LOOP            hand over    YOU         measured       collect     LOOP           finish
             who is       what does               what does                        press                   does it
             she look     it sound                it look like?                    render                  hold?
             like?        like?
@@ -30,6 +30,7 @@ and stops for you before the next begins.
 | 5 | **Scene look** | Find each scene's look | agent renders, **you pick** | contact sheets → a hero still per scene |
 | 6 | **Export** | Fill the Builder timeline | agent | a ready-to-render VRGDG project |
 | 7 | **Render** | Make the clips | **you**, in the Builder | the footage |
+| 7b | **Identity** | Put her face back in the footage | agent, measured | clips that still look like her |
 | 8 | **Import** | Bring it back | agent | the manifest and the cut |
 | 9 | **Dailies** | Check the footage | agent flags, **you decide** | a report: what looks wrong, why |
 | 10 | **Post** | Colour, grain, stitch | agent | the final film |
@@ -404,6 +405,62 @@ cannot have it.
 - Don't rename or move the project folder — import finds everything through it.
 
 **Status:** works. This is VRGDG's own path.
+
+---
+
+## 7b. Identity — put her face back in the footage
+
+**Say:** *"swap the faces"*
+
+```bash
+# measure only - what does the footage actually score?
+.venv/Scripts/python.exe scripts/swap_clip_faces.py --project <id> --dry-run
+
+# swap every clip that is under the bar
+.venv/Scripts/python.exe scripts/swap_clip_faces.py --project <id> --below 0.55
+```
+
+**You get:** the cast's face restored in every clip that lost it, each one
+measured before and after, and any swap that did not help thrown away.
+
+**Why this step exists.** Identity used to be established on the hero **stills**
+— swapped, measured, all passing — and then never checked again. The video model
+redraws the face while generating, and on `The Man Watches` the footage told a
+very different story from the stills:
+
+| | still | clip |
+|---|---|---|
+| sc31 close-up | 0.84 | 0.76 |
+| sc16 medium-close | 0.79 | 0.54 |
+| sc18 medium | 0.79 | **0.25** |
+| sc11 wide | 0.76 | **0.20** |
+| sc05 medium-wide | 0.69 | **0.11** |
+
+**The wider the shot, the more identity the render eats.** No better still fixes
+that, because the still was already right — so identity is re-applied *after* the
+video exists. Measured result on the first three: 0.15 → 0.67, 0.14 → 0.59,
+0.35 → 0.66.
+
+**The measurement is the step, not a report on it.** Before and after are scored
+against the same reference `identity_check.json` uses, so the numbers are
+comparable to what is already on record, and **a swap that does not improve the
+clip is discarded and the original kept**. Without that this stage would be a
+way to quietly make footage worse while announcing success.
+
+**`--faces-index` when there is a crowd.** ReActor replaces the largest face in
+frame, which in a crowd is often a bystander — that is how sc07's still once
+scored *worse* after its swap. Pick the face with `--faces-index` and let the
+before/after number tell you when you chose wrong.
+
+**It runs on the Windows install** while Wan renders in WSL, so a swap pass and a
+shoot can run at the same time without competing for weights.
+
+**What it cannot do:** put back a face that was never in frame. It is worth
+trying anyway — sc08 is a pure profile with her head tilted back and the swap
+still gained +0.44 — but when it returns "no face in frame", the answer is to
+re-direct the shot, not to swap harder.
+
+**Status:** **built and run live.** New in this fork.
 
 ---
 

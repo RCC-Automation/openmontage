@@ -2,7 +2,7 @@
 title: Directing the generator — what actually decides a frame
 status: measured
 updated: 2026-08-31
-sources: [../../projects/the-man-watches/scene_look/place-her/round.json, ../../scripts/retime_plan.py, ../../scripts/hero_stills.py]
+sources: [../../projects/the-man-watches/scene_look/place-her/round.json, ../../scripts/retime_plan.py, ../../scripts/hero_stills.py, ../../projects/the-man-watches/artifacts/shoot_log.jsonl]
 ---
 
 # Directing the generator — what actually decides a frame
@@ -72,6 +72,141 @@ produced it immediately.
 
 > **Absence is not a description.** Remove a term and something fills the space;
 > you do not get to choose what.
+
+### Motion: a contradiction resolves as oscillation
+
+Everything above is about stills. Video adds a failure the still pass cannot
+show, and it has a different mechanism: **an instruction the model cannot satisfy
+is not refused, it is averaged.**
+
+`sc02` was written as *"a single truck enters as a dot on the horizon line and
+**never arrives**"*, with `movement: dolly_in` putting *"a slow push in, the
+frame closing"* into the prompt. Two forces pointing opposite ways: the truck is
+told to come on and told not to get here, and the camera pushes in while the
+subject approaches. Wan 2.2 i2v at 209 frames resolved it by moving the truck
+back and forth — sampled at frames 0 / 52 / 104 / 156 / 208 it grows, shrinks
+twice, then grows, and ends barely larger than it started. Thirteen seconds of
+screen time in which nothing happens.
+
+Nothing errored. The clip is the right length, the right size, and correctly
+graded; only watching it reveals the shot is dead — the same lesson as
+[DECISIONS #40](../../DECISIONS.md), one medium along.
+
+The obvious fix was tried first, and it is the interesting part of this entry:
+**it did not work.** The shot was rewritten to say one direction and to say it
+continuously ("drives straight toward the camera … growing steadily larger for
+the whole shot … closing the distance frame after frame"), the camera was locked
+off so only the truck moved, and the reversal was named in the negative
+(`reversing, driving backwards, receding, shrinking, back and forth,
+oscillating, stationary truck, unchanging distance`).
+
+The re-render, 50 minutes later, approached cleanly to **frame ~80** — a better
+approach than before, genuinely — and then **the truck performed a U-turn,**
+drove away until frame ~144, turned a second time and came back.
+
+### The real ceiling: a motion cue survives about one training window
+
+Wan 2.2 i2v is trained around **81 frames**. Up to that, it obeys the direction.
+Past it, the cue is spent and the model generates plausible new motion — and for
+a subject with an obvious axis, the plausible next thing is going back the way it
+came. Sampled every 20 frames, the second sc02 render reads: grow, grow, grow,
+grow (f0–f80) · turn · recede (f100–f140) · turn · approach again (f160–f200).
+
+This is not drift, degradation or looping artifacts, which is what
+[Q9](../../QUESTIONS.md) expected to find. Nothing errors, the clip is the right
+length and correctly graded, and only watching it reveals the shot is dead
+([DECISIONS #40](../../DECISIONS.md), one medium along).
+
+**No prompt fixes this, because it is not a prompting failure.** Both levers at
+the top of this page operate on what the model is *asked*; this is a limit on how
+long it can keep being asked anything.
+
+### It runs out of direction, not of quality — so most long shots are fine
+
+The ceiling sounds like it caps every clip at 5 seconds. It does not. Measured on
+three clips from this film:
+
+| shot | frames | subject | |
+|---|---|---|---|
+| sc02 | 209 | a truck approaching | **broke** — U-turn at ~90, back again at ~160 |
+| sc08 | 133 | her, head back, camera static | **held** — pose, framing, identity stable throughout |
+| sc01 | 209 | empty horizon, drifting dust | **held** — no drift, no degradation |
+
+Wan does not get *worse* past 81 frames. It runs out of **direction**, and a
+shot whose subject is merely present rather than going somewhere has no
+direction to lose. Hair moves, dust drifts, light shifts — none of that has an
+axis that can reverse.
+
+So the rule is not "cap everything over 81 frames", which would needlessly soften
+two thirds of this film's long shots. It is: **cap a shot whose subject is going
+somewhere.** Everything else renders at full length and is judged on arrival.
+
+### What does work for the ones that do break: render one window, stretch it
+
+Keep the frames that obeyed and spend them over the whole slot.
+
+```bash
+# the 81 frames that held
+ffmpeg -i sc02_raw.mp4 -vf "select='lt(n\,81)',setpts=N/16/TB" -frames:v 81 clean81.mp4
+# motion-compensated to fill a 12.89 s slot; overshoot, then trim to exact length
+ffmpeg -i clean81.mp4 -vf "setpts=2.72*PTS,minterpolate=fps=16:mi_mode=mci:\
+mc_mode=aobmc:me_mode=bidir:vsbmc=1" -frames:v 209 sc02.mp4
+```
+
+Motion is one-way for the full 13.06 s because every frame descends from the
+stretch that obeyed. `minterpolate` **cannot extrapolate past the last input
+frame** — asking for exactly 209 returned 204 and a short clip, which is a gap in
+the film. Overshoot the factor and trim.
+
+### Two mechanisms that look right and are not
+
+Both were tried on `The Man Watches` after the stretch, on the reasoning that
+slowing motion down is a compromise and real-time motion must be better. Both
+cost renders and both were rejected by Raul watching the result.
+
+**Context windows (`WanContextWindowsManual`) — wrong for image-to-video.**
+The node slides an 81-frame window across a long generation with overlap, which
+is exactly right for text-to-video. For i2v it **re-feeds the start image
+conditioning into every window**, so each window generates motion beginning from
+the still again. On sc11 the scarf whipped forward, snapped back to its opening
+position at frame 52 — precisely the 81−30 stride — and repeated. It is
+architectural: `retain_first_frame: false` does not help, because the I2V embed
+reaches every window regardless. The upstream discussion is blunt about it —
+*"context windows will not work well with I2V models, with no proper way
+around it."*
+
+**Chained segments — no restart, but a seam.** Render a segment, take its *last*
+frame, start the next from it. The motion genuinely continues, because the model
+is looking at where it actually got to. But Wan does not *reproduce* its start
+image, it re-renders it, so the first frame of each new segment carries the
+model's own re-interpretation. Measured, the seam was the single largest
+frame-to-frame jump in every chained clip — 4.45× the median on sc11, 5.08 on
+sc15, 4.44 on sc16, 6.67 on sc18, and three seams in sc31. Visible, and rejected
+on sight: *"the face is good, but the sequence is broken."*
+
+Smoothing the seam by cross-fading toward the previous frame **scored beautifully
+and looked terrible** — the seam ratio fell from 3.6× to 0.72× and the frames
+became a double exposure, two sets of goggles and ghost limbs. A blend lowers
+frame-to-frame difference *by* ghosting. That number cannot tell a fix from a
+smear; only looking can.
+
+> One continuous generation has nothing to restart and nothing to seam. Every
+> mechanism that adds a boundary adds an artefact at it.
+
+### Why the stretch keeps winning
+
+It is also **3× cheaper**: 81 frames is ~14.5 min against ~50 for 209. The
+slow-down is not a compromise here — a truck taking 13 s to cover what it covered
+in 5 reads as distance on a long lens, which is the shot.
+
+**Where the negative still earns its place:** per-shot motion negatives live in
+`scene_plan.metadata.negative_prompt_overrides`, keyed by scene id, so they
+travel with the film rather than the render script — `stationary truck` is right
+for sc02 and wrong for any locked-off shot whose subject should hold still. They
+made the first 80 frames better. They could not make the clip longer.
+
+> A dead shot costs the same GPU hours as a good one. sc02 was 209 frames,
+> ~50 minutes, and was spent twice before the ceiling was the diagnosis.
 
 ### Uniformity is not a style
 

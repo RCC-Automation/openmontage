@@ -31,6 +31,10 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--project", default=None)
     ap.add_argument("--folder", required=True)
+    ap.add_argument("--prune", action="store_true",
+                    help="also DELETE segments the plan no longer contains. "
+                         "For a recut that dropped a scene; off by default "
+                         "because deleting timeline work should be asked for")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
@@ -43,6 +47,25 @@ def main() -> int:
 
     want = {stable_segment_id(s["id"]): (s["id"], s["start_seconds"], s["end_seconds"])
             for s in plan["scenes"]}
+
+    # A recut that drops a scene leaves its segment behind, still cutting to its
+    # old slot. The timeline looks complete and is two scenes too long - the
+    # same silent-wrongness this script exists to catch, one level up.
+    orphans = [seg for seg in segments if str(seg.get("id") or "") not in want]
+    if orphans:
+        print(f"{len(orphans)} segment(s) are not in the plan:")
+        for seg in orphans:
+            held = "holds a clip" if seg.get("video_path") else "empty"
+            print(f"  {seg.get('label') or seg.get('id')}  "
+                  f"{seg.get('start')}-{seg.get('end')}  ({held})")
+        if args.prune and not args.dry_run:
+            keep = [seg for seg in segments if seg not in orphans]
+            session["segments"] = keep
+            segments = keep
+            print(f"  -> pruned. {len(keep)} segment(s) remain.")
+        else:
+            print("  -> left in place. Pass --prune to delete them.")
+        print()
 
     changed = []
     for seg in segments:
@@ -67,7 +90,8 @@ def main() -> int:
               + (f"   ({w:.2f}s -> {n:.2f}s)" if w is not None else ""))
     print(f"\n{len(changed)} segment(s) differ from the plan")
 
-    if args.dry_run or not changed:
+    pruned = bool(orphans) and args.prune
+    if args.dry_run or not (changed or pruned):
         return 0
 
     backups = folder / "session_backups"

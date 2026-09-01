@@ -332,26 +332,50 @@ ear at one cut.
 
 ### Q9. Does Wan hold together at 209 frames?
 
-**Status:** assumed
-**Raised:** 2026-08-31, rendering `The Man Watches` shots 01 and 02
-**Blocks:** five more long shots — 08, 09, 25, 33, 34
+**Status:** answered — **no, and the failure is not the one expected.**
+2026-08-31, judged on `The Man Watches` sc02 by looking at it.
 
-**The situation.** Wan 2.2 is trained around 81 frames (5.06 s at 16 fps). Seven
-shots in this film need more: two at 209 frames, two at 165, two at 129, one at
-97. Shots 01 and 02 rendered at 209 without erroring, in 42–48 minutes each, and
-the clips are the right length — but nobody has judged them for temporal drift,
-looping or degradation against an 81-frame equivalent.
+**The answer.** A motion cue survives roughly **one training window — 81
+frames**. sc02 approached cleanly to frame ~80, then the truck **U-turned**,
+drove away to frame ~144, turned again and came back. Not drift, not
+degradation, not looping artifacts: the direction is simply spent, and the model
+generates plausible new motion, which for a subject with an obvious axis means
+going back the way it came.
 
-**What I assumed to keep going.** That a longer clip is merely slower, not
-worse. It is the assumption that lets the remaining shots be rendered at true
-length, which is both correct for the timeline and 11% cheaper overall than
-padding everything to 81 frames.
+Prompting does not reach it. The shot was rewritten to state one continuous
+direction, the camera locked off so only the truck moved, and the reversal named
+in the negative — the first 80 frames improved and the U-turn happened anyway,
+50 minutes later. Both levers in
+[directing the generator](wiki/practice/directing-the-generator.md) operate on
+what the model is asked; this limits how long it can keep being asked.
 
-**What changes if the answer is different.** Those seven shots need splitting
-into joined clips — which puts cuts inside shots designed as one continuous
-frame, including the bookend that must match shot 34 exactly — or the scene plan
-shortens them, which changes the film's rhythm. `retime_plan.py` and
-`render_shots.py` would both need a max-frames rule.
+**What we do instead.** Render one window and stretch it to the slot:
+81 frames, then `minterpolate` to the slot length (sc02: ×2.72 → 209 frames,
+13.06 s). Motion is one-way throughout because every frame descends from the
+stretch that obeyed, and it is **~3× cheaper** — 14.5 min against 50. The
+slow-down is not a compromise on a long lens: a truck taking 13 s to cross what
+it crossed in 5 reads as distance.
+
+**The ceiling binds only where something has an axis to reverse.** Checked by
+looking at three clips:
+
+| shot | frames | subject | verdict |
+|---|---|---|---|
+| sc02 | 209 | truck approaching | **broke** — U-turn at ~90, back again at ~160 |
+| sc08 | 133 | her, head tilted back, static camera | **held** — pose, framing and identity stable to 132 |
+| sc01 | 209 | empty horizon, drifting dust | **held** — no drift or degradation |
+
+So the rule is not "cap every shot over 81 frames". It is: **a shot whose
+subject is going somewhere cannot exceed one window; a shot whose subject is
+merely present can.** Wan does not degrade past its training length — it runs out
+of *direction*, and where there is no direction there is nothing to lose.
+
+Of this film's eight remaining long shots that leaves two at risk: **sc31**
+(113f, `dolly_in` on her face) and **sc33** (169f, fire that "blows to white" —
+a one-way progression that can un-happen). The other six are static or
+non-directional and are expected to hold. They render at full length and are
+judged on arrival; `scripts/stretch_clip.py` fixes any that break, after the
+fact, without a re-render.
 
 ---
 

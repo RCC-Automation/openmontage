@@ -66,3 +66,7 @@ Format: `## [YYYY-MM-DD] <op> | <what> | <note>`
 ## [2026-08-31] compile | practice/cutting-to-the-song | beat snap 12->29 of 33; true-length clips 11% cheaper
 ## [2026-08-31] compile | practice/directing-the-generator | word-ratio mechanism, 4 failures, 2 levers
 ## [2026-08-31] compile | character/placing-her | live negative puts her at 57 px; 6 of 19 models have one
+## [2026-09-01] compile | practice/directing-the-generator | Wan loops past its window; 8 of 10 long clips held, the 2 that broke asked for a completing event
+## [2026-09-01] compile | character/video-identity | stub filled: stills 0.48-0.84 vs clips 0.09-0.76; swap the clip, +0.31 to +0.52
+## [2026-09-01] compile | practice/directing-the-generator | context windows restart i2v every window; chaining seams at every join; the stretch is what survives
+## [2026-09-01] compile | character/video-identity | framing rule: toward camera, upright, unoccluded — sc06 -0.02→0.85, sc27 0.04→0.84, sc08 0.09→0.80

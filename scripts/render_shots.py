@@ -69,6 +69,11 @@ FPS = 16             # what the FLF capability test produced
 #: Peak resident memory for a Wan video job, measured (bench-suite, 2026-08-30).
 PEAK_GIB = 43.7
 
+#: The shared negative. Every shot in a film renders against the same one, so
+#: that a difference between two clips is the prompt and not the recipe.
+NEGATIVE = ("static, still, frozen, no motion, flicker, morphing, warping, "
+            "extra limbs, deformed hands, watermark, text")
+
 
 def available_gib() -> float | None:
     try:
@@ -90,6 +95,126 @@ def frames_for(seconds: float, fps: int = FPS) -> int:
     """
     n = int(seconds * fps + 1)
     return n if (n - 1) % 4 == 0 else ((n - 1) // 4 + 1) * 4 + 1
+
+
+#: Wan 2.2's native clip length. Not a hard limit - `WanImageToVideo.length`
+#: accepts up to 16384 - but it is what the model was trained on, and asking it
+#: to sample more than this in one window is what makes it loop.
+WINDOW = 81
+OVERLAP = 30
+
+
+def last_frame(clip: Path, dest: Path) -> Path:
+    """The final frame of a clip, as a PNG for the next segment to start from."""
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-sseof", "-1", "-i", str(clip),
+                    "-update", "1", "-frames:v", "1", str(dest)], check=True)
+    return dest
+
+
+def segment_lengths(total: int, window: int = WINDOW) -> list[int]:
+    """Split `total` frames into chained segments of at most `window`.
+
+    Each segment after the first *begins on the previous segment's last frame*,
+    so it contributes `length - 1` new frames.
+
+    Segments are **balanced, not greedy**. Filling windows first would split 85
+    frames into 81 + 5, and a 5-frame Wan render has no room to produce motion -
+    it would join a real shot to a twitch. Equal segments give every one of them
+    enough length to move: 85 becomes 45 + 45, and 281 becomes four of 73.
+
+    The last segment may overshoot; the caller trims the join to `total`.
+    """
+    if total <= window:
+        return [total]
+    n = -(-(total - 1) // (window - 1))        # fewest segments that reach it
+    each = -(-(total - 1) // n) + 1            # even split, then 4n+1
+    each += (-(each - 1)) % 4
+    return [min(each, window)] * n
+
+
+def add_context_windows(graph: dict, length: int = WINDOW,
+                        overlap: int = OVERLAP) -> int:
+    """Patch every sampler's model with `WanContextWindowsManual`.
+
+    **Do not use this for image-to-video.** Kept because it is the right tool
+    for text-to-video, and because the reason it is wrong here is worth having
+    written down next to it.
+
+    Context windows re-feed the *start image* conditioning into every window, so
+    each window generates motion beginning from the still again. On `The Man
+    Watches` sc11 the scarf whipped forward, snapped back to its opening
+    position at the window seam (frame 52, exactly the 81-30 stride) and
+    repeated - Raul's "breaking and repeating". It is architectural, not a
+    setting: `retain_first_frame` off does not fix it, because the I2V embed
+    reaches every window regardless.
+
+    Use `segment_lengths` + `last_frame` chaining instead, which continues from
+    where the previous segment ended rather than restarting.
+
+    Both samplers must be patched when it *is* used. Wan 2.2 splits denoising
+    across a high-noise and a low-noise model, and a window applied to only one
+    of them leaves the other unwindowed - so this walks every sampler in the
+    graph rather than naming node ids, which also survives a re-export.
+
+    Returns the number of samplers patched; 0 means nothing matched and the
+    caller should not claim the clip was windowed.
+    """
+    samplers = [nid for nid, n in graph.items()
+                if "KSampler" in (n.get("class_type") or "")
+                and isinstance((n.get("inputs") or {}).get("model"), list)]
+    nid = max(int(k) for k in graph) + 1
+    for sid in samplers:
+        graph[str(nid)] = {
+            "class_type": "WanContextWindowsManual",
+            "inputs": {
+                "model": graph[sid]["inputs"]["model"],
+                "context_length": length,
+                "context_overlap": overlap,
+                "context_schedule": "standard_uniform",
+                "context_stride": 1,
+                "closed_loop": False,
+                "fuse_method": "pyramid",
+                "freenoise": True,
+                "retain_first_frame": True,
+                "split_conds_to_windows": False,
+            },
+        }
+        graph[sid]["inputs"]["model"] = [str(nid), 0]
+        nid += 1
+    return len(samplers)
+
+
+def queued_prefixes(server: str) -> set[str]:
+    """Every `filename_prefix` the server is already running or holding pending.
+
+    The disk check below ("is <sid>.mp4 there?") only protects a *sequential*
+    re-run. It cannot see work that is in flight: on 2026-08-31 a killed runner
+    and the batch that replaced it both submitted sc01, and the server rendered
+    it three times - about 80 minutes of GPU spent on a clip that already
+    existed. The queue is the only place that in-flight work is visible, so ask
+    it before submitting.
+
+    Returns an empty set when the queue cannot be read. A guard that cannot see
+    must not block the shoot; the duplicate is the cheaper failure.
+    """
+    try:
+        q = json.loads(urllib.request.urlopen(f"{server}/queue", timeout=30).read())
+    except Exception as exc:
+        print(f"  (queue unreadable, duplicate guard off: {exc})")
+        return set()
+    seen: set[str] = set()
+    for bucket in ("queue_running", "queue_pending"):
+        for item in q.get(bucket) or []:
+            # An entry is [number, prompt_id, graph, extra, outputs]; the graph
+            # is the only element whose shape we depend on.
+            graph = next((e for e in item if isinstance(e, dict)), {})
+            for node in graph.values():
+                if not isinstance(node, dict):
+                    continue
+                prefix = (node.get("inputs") or {}).get("filename_prefix")
+                if isinstance(prefix, str):
+                    seen.add(prefix)
+    return seen
 
 
 def free_models(server: str) -> None:
@@ -160,6 +285,81 @@ def render(server: str, graph: dict, dest: Path, minutes: float) -> dict:
             "status": (entry.get("status") or {}).get("status_str"), "prompt_id": pid}
 
 
+def render_chain(args, scene: dict, still: Path, graph_src: dict, frames: int,
+                 out: Path, idx: int, total_scenes: int) -> dict:
+    """Render a long shot as chained segments and join them.
+
+    Segment 1 starts on the hero still. Every later segment starts on the
+    **last frame of the previous one**, so the model is always continuing a
+    motion it can see rather than inventing one, and never asked for more than
+    its window.
+
+    The join drops each later segment's first frame, because that frame *is*
+    the previous segment's last frame - keeping it would stutter.
+    """
+    sid = scene["id"]
+    lengths = segment_lengths(frames)
+    work = out / f".{sid}_segments"
+    work.mkdir(parents=True, exist_ok=True)
+    print(f"  [{idx}/{total_scenes}] {sid} ({frames}f as "
+          f"{'+'.join(str(x) for x in lengths)}) ...", flush=True)
+
+    start = still
+    parts, spent = [], 0.0
+    for n, length in enumerate(lengths, 1):
+        graph = json.loads(json.dumps(graph_src))
+        graph["97"]["inputs"]["image"] = upload_image(args.server, start)
+        graph["165"]["inputs"].update(width=args.width, height=args.height)
+        graph["192"]["inputs"]["value"] = round((length - 1) / FPS, 4)
+        graph["193"]["inputs"]["value"] = FPS
+        graph["171"]["inputs"]["text"] = scene["description"]
+        graph["168"]["inputs"]["text"] = NEGATIVE
+        # A different seed per segment. The same one re-runs the same motion
+        # from a near-identical frame, which is its own kind of repeat.
+        graph["181"]["inputs"]["noise_seed"] = 4402 + n
+        graph["108"]["inputs"]["filename_prefix"] = f"shots/{sid}_p{n}"
+
+        part = work / f"{sid}_p{n}.mp4"
+        wait = args.minutes or max(20.0, length / BENCH_FRAMES * 870 / 60 * 2.5)
+        print(f"      segment {n}/{len(lengths)} ({length}f, up to {wait:.0f}m)",
+              end="", flush=True)
+        r = render(args.server, graph, part, wait)
+        if not r.get("ok"):
+            return {"ok": False, "error": f"segment {n}: {r.get('error')}",
+                    "segments": lengths}
+        spent += r.get("seconds", 0)
+        print(f" {r['seconds']}s", flush=True)
+        parts.append(part)
+        if n < len(lengths):
+            start = last_frame(part, work / f"{sid}_p{n}_end.png")
+            if not args.no_free:
+                free_models(args.server)
+
+    # Join: everything from segment 1, then every later segment minus its
+    # first frame, then trim to the exact count the slot needs.
+    lst = work / "join.txt"
+    lst.write_text("".join(f"file '{p.name}'\n" for p in parts), encoding="utf-8")
+    joined = work / "joined.mp4"
+    trimmed = [parts[0]]
+    for p in parts[1:]:
+        cut = p.with_name(p.stem + "_cut.mp4")
+        subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", str(p),
+                        "-vf", "select='gt(n\\,0)',setpts=N/16/TB",
+                        "-c:v", "libx264", "-crf", "12", "-pix_fmt", "yuv420p",
+                        str(cut)], check=True)
+        trimmed.append(cut)
+    lst.write_text("".join(f"file '{p.name}'\n" for p in trimmed), encoding="utf-8")
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "concat", "-safe", "0",
+                    "-i", str(lst), "-c:v", "libx264", "-crf", "12",
+                    "-pix_fmt", "yuv420p", str(joined)],
+                   check=True, cwd=str(work))
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", str(joined),
+                    "-frames:v", str(frames), "-c:v", "libx264", "-crf", "12",
+                    "-pix_fmt", "yuv420p", str(out / f"{sid}.mp4")], check=True)
+    return {"ok": True, "seconds": round(spent, 1), "segments": lengths,
+            "segment_dir": str(work)}
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--project", default=None)
@@ -180,6 +380,19 @@ def main() -> int:
     ap.add_argument("--isolate", action="store_true",
                     help="run each scene in its own process, so a crash costs "
                          "one scene and not the rest of the shoot")
+    ap.add_argument("--long", choices=("chain", "window", "single"),
+                    default="chain",
+                    help="how to render past Wan's %d-frame window. 'chain' "
+                         "renders segments that each start on the previous "
+                         "one's last frame (the only one that keeps motion "
+                         "continuous for i2v); 'window' uses context windows "
+                         "(t2v only - it restarts the shot every window); "
+                         "'single' asks the model for the whole clip and lets "
+                         "it loop" % WINDOW)
+    ap.add_argument("--stop-file", default=None,
+                    help="path checked between scenes; when it appears the "
+                         "shoot finishes the scene in hand and stops. Defaults "
+                         "to <project>/artifacts/STOP")
     ap.add_argument("--force", action="store_true",
                     help="re-render scenes whose clip already exists")
     ap.add_argument("--no-free", action="store_true",
@@ -193,6 +406,11 @@ def main() -> int:
     if args.only:
         want = set(args.only)
         scenes = [s for s in scenes if s["id"] in want]
+
+    # Per-scene negative terms live in the plan, not in this script, so they
+    # travel with the film and survive a re-run of the batch. The scene schema
+    # forbids extra keys; `metadata` does not.
+    negatives = (plan.get("metadata") or {}).get("negative_prompt_overrides") or {}
 
     heroes = project / "scene_look" / "heroes"
     out = project / "assets" / "video"
@@ -223,6 +441,16 @@ def main() -> int:
         scenes = [s for s in scenes if not (out / f"{s['id']}.mp4").exists()]
         if before != len(scenes):
             print(f"{before - len(scenes)} already rendered, skipping those\n")
+
+        # ...and skip what the server is already working on. Disk cannot see
+        # a render that is in flight; the queue can.
+        if not args.dry_run:
+            in_flight = queued_prefixes(args.server)
+            busy = [s for s in scenes if f"shots/{s['id']}" in in_flight]
+            if busy:
+                print(f"{len(busy)} already queued on the server, skipping those: "
+                      f"{', '.join(s['id'] for s in busy)}\n")
+                scenes = [s for s in scenes if s not in busy]
     if not scenes:
         print("nothing left to render")
         return 0
@@ -231,9 +459,21 @@ def main() -> int:
     # not an OOM kill, not a crashed server, not a killed shell.
     if args.isolate and not args.dry_run:
         import subprocess as sp
+        # Asked for between scenes, never mid-scene. Killing a runner does not
+        # stop the render - that happens on the server, and the clip is lost
+        # rather than saved. So stopping means "submit nothing more", and the
+        # scene in hand is allowed to land.
+        stop = Path(args.stop_file) if args.stop_file else (
+            project / "artifacts" / "STOP")
         done, failed = [], []
         for i, s in enumerate(scenes, 1):
             sid = s["id"]
+            if stop.exists():
+                print(f"\nSTOP file at {stop} - finishing here.\n"
+                      f"{len(done)} rendered this run, {len(scenes) - i + 1} "
+                      "not started. Delete the file and re-run to continue.",
+                      flush=True)
+                break
             print(f"\n=== [{i}/{len(scenes)}] {sid} "
                   f"({available_gib()} GiB available) ===", flush=True)
             cmd = [sys.executable, __file__, "--project", project.name,
@@ -275,6 +515,23 @@ def main() -> int:
             print(f"        {s['description'][:100]}")
             continue
 
+        # A clip longer than the window is rendered as chained segments, each
+        # starting on the last frame of the one before, then joined. Nothing
+        # here asks the model for more than it was trained on, which is why the
+        # motion continues instead of restarting.
+        if frames > WINDOW and args.long == "chain":
+            r = render_chain(args, s, still, graph_src, frames, out, i, len(scenes))
+            r.update(id=sid, engine="wan_i2v chained", platform="wsl",
+                     frames=frames, clip_seconds=round(secs, 2),
+                     shot_seconds=round(want_s, 2))
+            print(f" -> {sid}.mp4" if r.get("ok")
+                  else f" FAILED: {str(r.get('error'))[:90]}")
+            ledger.parent.mkdir(parents=True, exist_ok=True)
+            with ledger.open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps(r) + "\n")
+            rows.append(r)
+            continue
+
         graph = json.loads(json.dumps(graph_src))
         # Uploading contacts the server, so it happens AFTER the dry-run
         # bail: a plan should never need the renderer to be up.
@@ -287,11 +544,22 @@ def main() -> int:
         graph["192"]["inputs"]["value"] = round((frames - 1) / FPS, 4)
         graph["193"]["inputs"]["value"] = FPS
         graph["171"]["inputs"]["text"] = s["description"]
-        graph["168"]["inputs"]["text"] = (
-            "static, still, frozen, no motion, flicker, morphing, warping, "
-            "extra limbs, deformed hands, watermark, text")
+        # A scene may add its own negative terms. sc02's truck oscillated -
+        # grew, shrank, grew - because the prompt asked it to approach and to
+        # never arrive at once; naming the reverse motion is the cheap fix, and
+        # DECISIONS #42 says reach for the negative prompt before the machinery.
+        # Scoped per scene rather than folded into NEGATIVE so the other shots
+        # keep rendering against the recipe sc01 and sc03 were rendered with.
+        extra = (negatives.get(sid) or "").strip()
+        graph["168"]["inputs"]["text"] = f"{NEGATIVE}, {extra}" if extra else NEGATIVE
         graph["181"]["inputs"]["noise_seed"] = 4402
         graph["108"]["inputs"]["filename_prefix"] = f"shots/{sid}"
+
+        windowed = 0
+        if args.long == "window" and frames > WINDOW:
+            windowed = add_context_windows(graph)
+            if not windowed:
+                print(f"  {sid}: no sampler matched, NOT windowed")
 
         dest = out / f"{sid}.mp4"
         if args.dry_run:
@@ -300,11 +568,20 @@ def main() -> int:
 
         # 870 s for 81 frames measured, x2.5 headroom, never under 20 min.
         wait = args.minutes or max(20.0, frames / BENCH_FRAMES * 870 / 60 * 2.5)
-        print(f"  [{i}/{len(scenes)}] {sid} ({frames}f, up to {wait:.0f}m) ...",
-              end="", flush=True)
+        print(f"  [{i}/{len(scenes)}] {sid} ({frames}f"
+              + (f", {windowed}x windowed" if windowed else "")
+              + f", up to {wait:.0f}m) ...", end="", flush=True)
         r = render(args.server, graph, dest, wait)
         r.update(id=sid, engine="wan_i2v", platform="wsl", frames=frames,
                  clip_seconds=round(secs, 2), shot_seconds=round(want_s, 2))
+        if windowed:
+            r["context_windows"] = {"samplers": windowed, "length": WINDOW,
+                                    "overlap": OVERLAP}
+        if extra:
+            # Which shots were rendered against a different negative, and what
+            # it was. Without this the ledger says two clips share a recipe
+            # when they do not.
+            r["negative_extra"] = extra
         print(f" {r['seconds']}s -> {dest.name}" if r.get("ok")
               else f" FAILED: {str(r.get('error'))[:90]}")
         ledger.parent.mkdir(parents=True, exist_ok=True)
